@@ -4,6 +4,7 @@ const { perception, executeCommand, narrativeContext } = require('./state');
 const { validateContract, ContractError } = require('./contracts');
 const { simulate } = require('./ai-simulator');
 const { interpretUserInput, narrateTurn } = require('./ollama');
+const { enrichPlace } = require('./world');
 
 const maxAttempts = Math.max(1, Number(process.env.TURN_MAX_ATTEMPTS || 2));
 const campaignLocks = new Map();
@@ -57,8 +58,8 @@ const getTrace = (traceId) => {
   return { ...row, trace: parseJson(row.trace_json, []), result: row.result_json ? parseJson(row.result_json, null) : null, error: row.error_json ? parseJson(row.error_json, null) : null };
 };
 
-const listTraces = (campaignId, limit = 50) => db.prepare(`SELECT id, campaign_id, actor_id, input_text, status, current_stage, attempts, created_at, updated_at
-  FROM turn_traces WHERE campaign_id = ? ORDER BY created_at DESC LIMIT ?`).all(campaignId, Math.max(1, Math.min(200, Number(limit) || 50)));
+const listTraces = (campaignId, limit = 50) => db.prepare(`SELECT id, campaign_id, actor_id, input_text, status, current_stage, attempts, result_json, created_at, updated_at
+  FROM turn_traces WHERE campaign_id = ? ORDER BY created_at DESC LIMIT ?`).all(campaignId, Math.max(1, Math.min(200, Number(limit) || 50))).map((row) => ({ ...row, result: row.result_json ? parseJson(row.result_json, null) : null, result_json: undefined }));
 
 const withCampaignLock = async (campaignId, work) => {
   const previous = campaignLocks.get(campaignId) || Promise.resolve();
@@ -125,6 +126,13 @@ const runUserTurnUnlocked = async ({ campaignId, actorId, text, narratorMessage 
       const command = { ...intent };
       delete command.type;
       delete command.confidence;
+      if (command.action === 'observe') {
+        const actor = db.prepare('SELECT location_id FROM characters WHERE id = ? AND campaign_id = ?').get(actorId, campaignId);
+        if (actor?.location_id) {
+          const world = await enrichPlace(campaignId, actorId, actor.location_id);
+          appendTrace(traceId, 'world_enriched', { enriched: world.enriched, placeId: actor.location_id });
+        }
+      }
       execution = executeCommand(campaignId, command);
       appendTrace(traceId, 'applied', { execution });
     }

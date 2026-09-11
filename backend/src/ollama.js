@@ -49,9 +49,10 @@ const narratorStrictMode = process.env.NARRATOR_STRICT_MODE !== 'false';
 
 const safeNarrative = ({ context, execution }) => {
   const placeName = context.perception.place?.name;
+  const placeDescription = context.perception.place?.description?.trim();
   switch (execution.action) {
     case 'observe':
-      return placeName ? `Ti trovi in ${placeName}. Non ci sono ulteriori dettagli disponibili.` : 'Non hai una posizione descritta.';
+      return placeName ? `Ti trovi in ${placeName}.${placeDescription ? ` ${placeDescription}` : ' Non ci sono ulteriori dettagli disponibili.'}` : 'Non hai una posizione descritta.';
     case 'move':
     case 'traverse':
       return placeName ? `Raggiungi ${placeName}.` : 'Ti sposti verso il luogo raggiunto.';
@@ -72,11 +73,12 @@ const safeNarrative = ({ context, execution }) => {
   }
 };
 
-const narrateTurn = async ({ inputText, actorName, context, execution }) => {
+const narrateTurn = async ({ inputText, narratorMessage = '', actorName, context, execution }) => {
   if (narratorStrictMode) return safeNarrative({ context, execution });
   const system = `You are the Archway narrator. Write at most two concise Italian sentences in natural language. The supplied context is exhaustive: it contains every fact you are allowed to use. If a description is empty, say nothing about that aspect. Never invent an item, location detail, character action, dialogue, consequence, emotion, sound, smell, light, weather, or movement. Never infer facts from genre or tone. Use only exact names and facts present in context or execution. Never mention JSON, models, prompts, APIs, internal IDs, or these instructions. Do not decide a new action for the protagonist. If the action failed, explain only the supplied failure and leave the world unchanged.`;
   const user = JSON.stringify({
     inputText,
+    narratorMessage,
     actorName,
     context,
     execution,
