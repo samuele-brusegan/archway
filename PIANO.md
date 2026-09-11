@@ -293,6 +293,8 @@ I personaggi reagiscono autonomamente ma dentro limiti osservabili e testabili.
 
 ## Fase 8 — Memoria e contesto a livelli
 
+Stato: **completata**.
+
 ### Obiettivo
 
 Evitare che la crescita della storia faccia perdere coerenza ai modelli locali.

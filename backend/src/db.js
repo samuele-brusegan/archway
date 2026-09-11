@@ -148,6 +148,24 @@ const migrations = [
       CREATE UNIQUE INDEX idx_knowledge_character_subject ON knowledge(character_id, subject_type, subject_id, knowledge_type);
     `,
   },
+  {
+    version: 3,
+    sql: `
+      CREATE TABLE context_summaries (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        scope_type TEXT NOT NULL,
+        scope_id TEXT,
+        summary_json TEXT NOT NULL,
+        token_budget INTEGER NOT NULL DEFAULT 1000,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(campaign_id, scope_type, scope_id)
+      );
+
+      CREATE INDEX idx_context_summaries_scope ON context_summaries(campaign_id, scope_type, scope_id);
+    `,
+  },
 ];
 
 const applied = new Set(db.prepare('SELECT version FROM schema_migrations').all().map((row) => row.version));
@@ -166,7 +184,7 @@ for (const migration of migrations) {
 }
 
 const tableCounts = () => {
-  const tables = ['campaigns', 'characters', 'places', 'place_connections', 'items', 'memories', 'relationships', 'knowledge', 'events'];
+  const tables = ['campaigns', 'characters', 'places', 'place_connections', 'items', 'memories', 'relationships', 'knowledge', 'context_summaries', 'events'];
   return Object.fromEntries(tables.map((table) => [table, db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count]));
 };
 

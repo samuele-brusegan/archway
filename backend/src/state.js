@@ -1,6 +1,7 @@
 const { randomUUID } = require('node:crypto');
 const { db } = require('./db');
 const { validateContract } = require('./contracts');
+const { relevantMemoryContext } = require('./memory');
 
 class StateError extends Error {
   constructor(message, code = 'STATE_INVALID') {
@@ -99,13 +100,14 @@ const perception = (campaignId, characterId) => {
   return { characterId, ...visibleState(campaignId, actor), knowledge: getKnowledge(campaignId, characterId) };
 };
 
-const narrativeContext = (campaignId, characterId) => {
+const narrativeContext = (campaignId, characterId, query = '') => {
   const currentCampaign = campaign(campaignId);
   const actor = character(campaignId, characterId);
   return {
     campaign: { title: currentCampaign.title, genre: currentCampaign.genre, tone: currentCampaign.tone, currentTime: currentCampaign.current_time },
     actor: { id: actor.id, name: actor.name, role: actor.role },
     perception: perception(campaignId, characterId),
+    memory: relevantMemoryContext(campaignId, characterId, { query, locationId: actor.location_id }),
   };
 };
 

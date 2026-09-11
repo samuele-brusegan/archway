@@ -6,6 +6,7 @@ const { ContractError, validateContract } = require('./src/contracts');
 const { simulate } = require('./src/ai-simulator');
 const { interpretUserInput, interpreterModel, narrateTurn, narratorModel } = require('./src/ollama');
 const { decideCharacter, getCharacter, updatePsychology } = require('./src/npc');
+const { archiveMemory, buildCampaignSummary, createMemory, getMemory, getSummary, listMemories, relevantMemoryContext, saveSummary, updateMemory } = require('./src/memory');
 
 const port = Number(process.env.PORT || 3001);
 const ollamaUrl = process.env.OLLAMA_URL || 'http://ollama:11434';
@@ -114,6 +115,58 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  const memoryCollectionMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/characters\/([^/]+)\/memories$/);
+  if (memoryCollectionMatch && ['GET', 'POST'].includes(req.method)) {
+    try {
+      const [campaignId, characterId] = memoryCollectionMatch.slice(1);
+      if (req.method === 'GET') return sendJson(res, 200, listMemories(campaignId, characterId));
+      return sendJson(res, 201, createMemory(campaignId, characterId, await readJsonBody(req)));
+    } catch (error) {
+      return sendJson(res, 400, { error: error.message, code: 'MEMORY_CREATE_FAILED' });
+    }
+  }
+
+  const memoryMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/characters\/([^/]+)\/memories\/([^/]+)$/);
+  if (memoryMatch && ['GET', 'PATCH', 'DELETE'].includes(req.method)) {
+    try {
+      const [campaignId, characterId, memoryId] = memoryMatch.slice(1);
+      if (req.method === 'GET') return sendJson(res, 200, getMemory(campaignId, characterId, memoryId));
+      if (req.method === 'DELETE') return sendJson(res, 200, archiveMemory(campaignId, characterId, memoryId));
+      return sendJson(res, 200, updateMemory(campaignId, characterId, memoryId, await readJsonBody(req)));
+    } catch (error) {
+      return sendJson(res, 400, { error: error.message, code: 'MEMORY_UPDATE_FAILED' });
+    }
+  }
+
+  const contextMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/characters\/([^/]+)\/context$/);
+  if (req.method === 'POST' && contextMatch) {
+    try {
+      const input = await readJsonBody(req);
+      return sendJson(res, 200, {
+        memory: relevantMemoryContext(contextMatch[1], contextMatch[2], input),
+        summary: getSummary(contextMatch[1], input.scopeType || 'campaign', input.scopeId || null),
+      });
+    } catch (error) {
+      return sendJson(res, 400, { error: error.message, code: 'CONTEXT_BUILD_FAILED' });
+    }
+  }
+
+  const summaryMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/summaries$/);
+  if (req.method === 'POST' && summaryMatch) {
+    try {
+      const input = await readJsonBody(req);
+      if (input.auto === true) return sendJson(res, 200, buildCampaignSummary(summaryMatch[1], input.scopeType || 'campaign', input.scopeId || null));
+      return sendJson(res, 200, saveSummary(summaryMatch[1], input.scopeType || 'campaign', input.scopeId || null, input.summary, input.tokenBudget || 1000));
+    } catch (error) {
+      return sendJson(res, 400, { error: error.message, code: 'SUMMARY_SAVE_FAILED' });
+    }
+  }
+
+  const summaryGetMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/summaries\/([^/]+)$/);
+  if (req.method === 'GET' && summaryGetMatch) {
+    return sendJson(res, 200, getSummary(summaryGetMatch[1], summaryGetMatch[2]) || { summary: null });
+  }
+
   if (req.method === 'POST' && req.url === '/api/campaigns') {
     try {
       const campaign = createCampaign(await readJsonBody(req));
@@ -208,7 +261,7 @@ const server = http.createServer(async (req, res) => {
       let narrative;
       let narrativeError = null;
       try {
-        const context = narrativeContext(inputMatch[1], input.actorId);
+        const context = narrativeContext(inputMatch[1], input.actorId, input.text);
         narrative = await narrateTurn({ inputText: input.text, actorName: context.actor.name, context, execution });
       } catch (error) {
         narrativeError = error.message;
