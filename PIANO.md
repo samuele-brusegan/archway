@@ -105,6 +105,8 @@ Una campagna può essere persistita e ricostruita interamente dal database.
 
 ## Fase 2 — Motore deterministico dello stato
 
+Stato: **completata**.
+
 ### Obiettivo
 
 Applicare azioni e conseguenze senza alcun modello AI.
