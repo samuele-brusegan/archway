@@ -7,6 +7,7 @@ const { simulate } = require('./src/ai-simulator');
 const { interpretUserInput, interpreterModel, narrateTurn, narratorModel } = require('./src/ollama');
 const { decideCharacter, getCharacter, updatePsychology } = require('./src/npc');
 const { archiveMemory, buildCampaignSummary, createMemory, getMemory, getSummary, listMemories, relevantMemoryContext, saveSummary, updateMemory } = require('./src/memory');
+const { TurnError, getTrace, listTraces, resumeTurn, runUserTurn } = require('./src/turn-director');
 
 const port = Number(process.env.PORT || 3001);
 const ollamaUrl = process.env.OLLAMA_URL || 'http://ollama:11434';
@@ -64,7 +65,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, {
       service: 'backend',
       ai: { provider: 'ollama', url: ollamaUrl },
-      phase: 6,
+      phase: 9,
       interpreterModel,
       narratorModel,
       characterModel: require('./src/ollama').characterModel,
@@ -74,6 +75,29 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && req.url === '/api/db/status') {
     return sendJson(res, 200, { database: databasePath, tables: tableCounts() });
+  }
+
+  const traceMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/turns\/([^/]+)$/);
+  if (req.method === 'POST' && traceMatch) {
+    try {
+      const trace = getTrace(traceMatch[2]);
+      if (!trace || trace.campaign_id !== traceMatch[1]) return sendJson(res, 404, { error: 'Turn trace not found', code: 'TRACE_NOT_FOUND' });
+      return sendJson(res, 200, await resumeTurn(traceMatch[2]));
+    } catch (error) {
+      const status = error instanceof TurnError ? error.status : 409;
+      return sendJson(res, status, { error: error.message, code: error.code || 'TURN_RESUME_FAILED', ...(error.traceId ? { traceId: error.traceId } : {}) });
+    }
+  }
+
+  if (req.method === 'GET' && traceMatch) {
+    const trace = getTrace(traceMatch[2]);
+    if (!trace || trace.campaign_id !== traceMatch[1]) return sendJson(res, 404, { error: 'Turn trace not found', code: 'TRACE_NOT_FOUND' });
+    return sendJson(res, 200, trace);
+  }
+
+  const tracesMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/turns$/);
+  if (req.method === 'GET' && tracesMatch) {
+    return sendJson(res, 200, listTraces(tracesMatch[1]));
   }
 
   if (req.method === 'POST' && req.url === '/api/contracts/validate') {
@@ -247,32 +271,10 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'POST' && inputMatch) {
     try {
       const input = await readJsonBody(req);
-      if (typeof input.actorId !== 'string' || !input.actorId.trim()) throw new Error('actorId is required');
-      if (typeof input.text !== 'string' || !input.text.trim()) throw new Error('text is required');
-      const { perception } = require('./src/state');
-      const available = perception(inputMatch[1], input.actorId);
-      const rawIntent = await interpretUserInput({ actorId: input.actorId, text: input.text, perception: available });
-      const intent = validateContract('intent', rawIntent);
-      if (intent.confidence < 0.45) return sendJson(res, 422, { error: 'Input not understood with sufficient confidence', code: 'LOW_CONFIDENCE', intent });
-      const command = { ...intent };
-      delete command.type;
-      delete command.confidence;
-      const execution = executeCommand(inputMatch[1], command);
-      let narrative;
-      let narrativeError = null;
-      try {
-        const context = narrativeContext(inputMatch[1], input.actorId, input.text);
-        narrative = await narrateTurn({ inputText: input.text, actorName: context.actor.name, context, execution });
-      } catch (error) {
-        narrativeError = error.message;
-        narrative = execution.events.length
-          ? "L'azione viene eseguita e il mondo registra la conseguenza."
-          : 'Non accade nulla di nuovo.';
-      }
-      return sendJson(res, 200, { intent, execution, narrative, narrativeFallback: Boolean(narrativeError), ...(narrativeError ? { narrativeError } : {}) });
+      return sendJson(res, 200, await runUserTurn({ campaignId: inputMatch[1], actorId: input.actorId, text: input.text, narratorMessage: input.narratorMessage || '' }));
     } catch (error) {
-      const status = error instanceof ContractError ? 422 : error instanceof StateError && error.code.endsWith('_NOT_FOUND') ? 404 : 409;
-      return sendJson(res, status, { error: error.message, code: error.code || 'INPUT_FAILED', path: error.path || '$' });
+      const status = error instanceof TurnError ? error.status : error instanceof ContractError ? 422 : error instanceof StateError && error.code.endsWith('_NOT_FOUND') ? 404 : 409;
+      return sendJson(res, status, { error: error.message, code: error.code || 'INPUT_FAILED', ...(error.traceId ? { traceId: error.traceId } : {}), path: error.path || '$' });
     }
   }
 

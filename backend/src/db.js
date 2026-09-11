@@ -166,6 +166,27 @@ const migrations = [
       CREATE INDEX idx_context_summaries_scope ON context_summaries(campaign_id, scope_type, scope_id);
     `,
   },
+  {
+    version: 4,
+    sql: `
+      CREATE TABLE turn_traces (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        actor_id TEXT,
+        input_text TEXT NOT NULL,
+        status TEXT NOT NULL,
+        current_stage TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        trace_json TEXT NOT NULL DEFAULT '[]',
+        result_json TEXT,
+        error_json TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX idx_turn_traces_campaign_created ON turn_traces(campaign_id, created_at);
+    `,
+  },
 ];
 
 const applied = new Set(db.prepare('SELECT version FROM schema_migrations').all().map((row) => row.version));
@@ -184,7 +205,7 @@ for (const migration of migrations) {
 }
 
 const tableCounts = () => {
-  const tables = ['campaigns', 'characters', 'places', 'place_connections', 'items', 'memories', 'relationships', 'knowledge', 'context_summaries', 'events'];
+  const tables = ['campaigns', 'characters', 'places', 'place_connections', 'items', 'memories', 'relationships', 'knowledge', 'context_summaries', 'turn_traces', 'events'];
   return Object.fromEntries(tables.map((table) => [table, db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count]));
 };
 

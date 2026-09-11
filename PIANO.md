@@ -327,6 +327,8 @@ La campagna può crescere senza inviare tutta la cronologia ai modelli e senza p
 
 ## Fase 9 — TurnDirector e orchestrazione completa
 
+Stato: **completata**.
+
 ### Obiettivo
 
 Unificare i componenti in un ciclo robusto, osservabile e interrompibile.
