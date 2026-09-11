@@ -1,6 +1,7 @@
 const defaultTimeout = Number(process.env.OLLAMA_TIMEOUT_MS || 30000);
 const ollamaUrl = process.env.OLLAMA_URL || 'http://ollama:11434';
 const interpreterModel = process.env.OLLAMA_INTERPRETER_MODEL || 'MODEL_PLACEHOLDER';
+const characterModel = process.env.OLLAMA_CHARACTER_MODEL || interpreterModel;
 
 const callOllama = async ({ system, user, model = interpreterModel, timeout = defaultTimeout, format }) => {
   const controller = new AbortController();
@@ -112,4 +113,4 @@ const interpretUserInput = async ({ actorId, text, perception }) => {
   return callOllamaJson({ system, user });
 };
 
-module.exports = { callOllama, callOllamaJson, interpretUserInput, narrateTurn, interpreterModel, narratorModel };
+module.exports = { callOllama, callOllamaJson, interpretUserInput, narrateTurn, interpreterModel, narratorModel, characterModel };

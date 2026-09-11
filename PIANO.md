@@ -262,6 +262,8 @@ Confrontare stato tecnico e testo narrativo turno per turno. Annotare allucinazi
 
 ## Fase 7 — Personaggi autonomi e psicologia
 
+Stato: **completata**.
+
 ### Obiettivo
 
 Introdurre personaggi non giocanti coerenti, con decisioni limitate dalla loro situazione.

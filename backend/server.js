@@ -5,6 +5,7 @@ const { StateError, executeCommand, narrativeContext } = require('./src/state');
 const { ContractError, validateContract } = require('./src/contracts');
 const { simulate } = require('./src/ai-simulator');
 const { interpretUserInput, interpreterModel, narrateTurn, narratorModel } = require('./src/ollama');
+const { decideCharacter, getCharacter, updatePsychology } = require('./src/npc');
 
 const port = Number(process.env.PORT || 3001);
 const ollamaUrl = process.env.OLLAMA_URL || 'http://ollama:11434';
@@ -65,6 +66,7 @@ const server = http.createServer(async (req, res) => {
       phase: 6,
       interpreterModel,
       narratorModel,
+      characterModel: require('./src/ollama').characterModel,
       database: { path: databasePath, tables: tableCounts() },
     });
   }
@@ -133,7 +135,7 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
-  const collectionMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/(places|connections|characters|items)$/);
+  const collectionMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/(places|connections|characters|items|relationships)$/);
   if (req.method === 'POST' && collectionMatch) {
     const campaignId = collectionMatch[1];
     const collection = collectionMatch[2];
@@ -156,11 +158,21 @@ const server = http.createServer(async (req, res) => {
         if (input.locationId) db.prepare('SELECT id FROM places WHERE id = ? AND campaign_id = ?').get(input.locationId, campaignId) || (() => { throw new Error('Location not found'); })();
         db.prepare(`INSERT INTO characters (id, campaign_id, name, role, physical_description, psychological_description, state_json, location_id, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, campaignId, input.name, input.role || 'npc', input.physicalDescription || '', input.psychologicalDescription || '', JSON.stringify(input.state || {}), input.locationId || null, created, created);
-      } else {
+      } else if (collection === 'items') {
         if (!input.name) throw new Error('name is required');
         if (input.locationId) db.prepare('SELECT id FROM places WHERE id = ? AND campaign_id = ?').get(input.locationId, campaignId) || (() => { throw new Error('Location not found'); })();
         db.prepare(`INSERT INTO items (id, campaign_id, name, description, state_json, location_id, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, campaignId, input.name, input.description || '', JSON.stringify(input.state || {}), input.locationId || null, created, created);
+      } else {
+        if (!input.fromCharacterId || !input.toCharacterId) throw new Error('fromCharacterId and toCharacterId are required');
+        if (input.fromCharacterId === input.toCharacterId) throw new Error('Relationship must connect two different characters');
+        const characterCount = db.prepare(`SELECT COUNT(*) AS count FROM characters WHERE campaign_id = ? AND id IN (?, ?)`)
+          .get(campaignId, input.fromCharacterId, input.toCharacterId).count;
+        if (characterCount !== 2) throw new Error('Both relationship characters must exist in the campaign');
+        db.prepare(`INSERT INTO relationships (id, campaign_id, from_character_id, to_character_id, state_json, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(from_character_id, to_character_id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at`)
+          .run(id, campaignId, input.fromCharacterId, input.toCharacterId, JSON.stringify(input.state || {}), created, created);
       }
       return sendJson(res, 201, { id, campaignId, collection });
     } catch (error) {
@@ -208,6 +220,34 @@ const server = http.createServer(async (req, res) => {
     } catch (error) {
       const status = error instanceof ContractError ? 422 : error instanceof StateError && error.code.endsWith('_NOT_FOUND') ? 404 : 409;
       return sendJson(res, status, { error: error.message, code: error.code || 'INPUT_FAILED', path: error.path || '$' });
+    }
+  }
+
+  const decisionMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/characters\/([^/]+)\/decide$/);
+  if (req.method === 'POST' && decisionMatch) {
+    try {
+      const character = getCharacter(decisionMatch[1], decisionMatch[2]);
+      if (!character) return sendJson(res, 404, { error: 'Character not found', code: 'CHARACTER_NOT_FOUND' });
+      if (character.role === 'protagonist') return sendJson(res, 409, { error: 'The protagonist is controlled by the user', code: 'PROTAGONIST_AUTONOMY_DENIED' });
+      const intent = await decideCharacter({ campaignId: decisionMatch[1], characterId: decisionMatch[2] });
+      const command = { ...intent };
+      delete command.type;
+      delete command.confidence;
+      const execution = executeCommand(decisionMatch[1], command);
+      return sendJson(res, 200, { intent, execution });
+    } catch (error) {
+      const status = error instanceof ContractError ? 422 : error instanceof StateError && error.code.endsWith('_NOT_FOUND') ? 404 : 409;
+      return sendJson(res, status, { error: error.message, code: error.code || 'CHARACTER_DECISION_FAILED', path: error.path || '$' });
+    }
+  }
+
+  const psychologyMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/characters\/([^/]+)\/psychology$/);
+  if (req.method === 'PATCH' && psychologyMatch) {
+    try {
+      const input = await readJsonBody(req);
+      return sendJson(res, 200, updatePsychology({ campaignId: psychologyMatch[1], characterId: psychologyMatch[2], changes: input.changes, reasonEventId: input.reasonEventId }));
+    } catch (error) {
+      return sendJson(res, 400, { error: error.message, code: 'PSYCHOLOGY_UPDATE_FAILED' });
     }
   }
 
