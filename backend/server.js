@@ -200,6 +200,10 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  if (req.method === 'GET' && req.url === '/api/campaigns') {
+    return sendJson(res, 200, db.prepare('SELECT * FROM campaigns WHERE archived_at IS NULL ORDER BY updated_at DESC').all());
+  }
+
   const campaignMatch = req.url.match(/^\/api\/campaigns\/([^/]+)$/);
   if (req.method === 'GET' && campaignMatch) {
     const campaign = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(campaignMatch[1]);
@@ -208,8 +212,29 @@ const server = http.createServer(async (req, res) => {
       ...campaign,
       characters: db.prepare('SELECT * FROM characters WHERE campaign_id = ? ORDER BY created_at').all(campaign.id),
       places: db.prepare('SELECT * FROM places WHERE campaign_id = ? ORDER BY created_at').all(campaign.id),
+      connections: db.prepare('SELECT * FROM place_connections WHERE campaign_id = ? ORDER BY created_at').all(campaign.id),
+      items: db.prepare('SELECT * FROM items WHERE campaign_id = ? ORDER BY created_at').all(campaign.id),
       events: db.prepare('SELECT * FROM events WHERE campaign_id = ? ORDER BY created_at').all(campaign.id),
     });
+  }
+
+  const characterPatchMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/characters\/([^/]+)$/);
+  if (req.method === 'PATCH' && characterPatchMatch) {
+    try {
+      const input = await readJsonBody(req);
+      const character = db.prepare('SELECT * FROM characters WHERE id = ? AND campaign_id = ?').get(characterPatchMatch[2], characterPatchMatch[1]);
+      if (!character) return sendJson(res, 404, { error: 'Character not found', code: 'CHARACTER_NOT_FOUND' });
+      const allowed = ['name', 'role', 'physicalDescription', 'psychologicalDescription', 'locationId', 'state'];
+      const unknown = Object.keys(input).filter((key) => !allowed.includes(key));
+      if (unknown.length) return sendJson(res, 422, { error: `Unsupported character fields: ${unknown.join(', ')}`, code: 'CHARACTER_PATCH_INVALID' });
+      if (input.locationId && !db.prepare('SELECT id FROM places WHERE id = ? AND campaign_id = ?').get(input.locationId, characterPatchMatch[1])) return sendJson(res, 422, { error: 'Location not found', code: 'LOCATION_NOT_FOUND' });
+      const state = input.state === undefined ? character.state_json : JSON.stringify(input.state);
+      db.prepare(`UPDATE characters SET name = ?, role = ?, physical_description = ?, psychological_description = ?, location_id = ?, state_json = ?, updated_at = ?
+        WHERE id = ? AND campaign_id = ?`).run(input.name ?? character.name, input.role ?? character.role, input.physicalDescription ?? character.physical_description, input.psychologicalDescription ?? character.psychological_description, input.locationId ?? character.location_id, state, now(), character.id, characterPatchMatch[1]);
+      return sendJson(res, 200, db.prepare('SELECT * FROM characters WHERE id = ?').get(character.id));
+    } catch (error) {
+      return sendJson(res, 400, { error: error.message, code: 'CHARACTER_PATCH_FAILED' });
+    }
   }
 
   const collectionMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/(places|connections|characters|items|relationships)$/);

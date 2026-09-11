@@ -362,6 +362,8 @@ Il ciclo completo è robusto anche con modelli piccoli, lenti o temporaneamente 
 
 ## Fase 10 — Interfaccia di gioco e strumenti di debug
 
+Stato: **completata**.
+
 ### Obiettivo
 
 Rendere il sistema giocabile e correggibile senza modificare direttamente il database.
