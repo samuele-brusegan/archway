@@ -23,14 +23,20 @@ const parseJson = (value, fallback) => {
   try { return JSON.parse(value); } catch { return fallback; }
 };
 
-const createTrace = ({ campaignId, actorId, inputText }) => {
+const worldTables = ['campaigns', 'characters', 'places', 'place_connections', 'items', 'memories', 'relationships', 'knowledge', 'context_summaries'];
+
+const captureWorld = (campaignId) => Object.fromEntries(worldTables.map((table) => [table, table === 'campaigns'
+  ? db.prepare('SELECT * FROM campaigns WHERE id = ?').all(campaignId)
+  : db.prepare(`SELECT * FROM ${table} WHERE campaign_id = ?`).all(campaignId)]));
+
+const createTrace = ({ campaignId, actorId, inputText, preState }) => {
   const id = randomUUID();
   const timestamp = now();
   const initialTrace = JSON.stringify([{ stage: 'received', at: timestamp, inputText }]);
   db.prepare(`INSERT INTO turn_traces
-    (id, campaign_id, actor_id, input_text, status, current_stage, attempts, trace_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, campaignId, actorId || null, inputText, 'received', 'received', 0, initialTrace, timestamp, timestamp);
+    (id, campaign_id, actor_id, input_text, status, current_stage, attempts, trace_json, pre_state_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, campaignId, actorId || null, inputText, 'received', 'received', 0, initialTrace, JSON.stringify(preState), timestamp, timestamp);
   return id;
 };
 
@@ -58,7 +64,7 @@ const getTrace = (traceId) => {
   return { ...row, trace: parseJson(row.trace_json, []), result: row.result_json ? parseJson(row.result_json, null) : null, error: row.error_json ? parseJson(row.error_json, null) : null };
 };
 
-const listTraces = (campaignId, limit = 50) => db.prepare(`SELECT id, campaign_id, actor_id, input_text, status, current_stage, attempts, result_json, created_at, updated_at
+const listTraces = (campaignId, limit = 50) => db.prepare(`SELECT id, campaign_id, actor_id, input_text, status, current_stage, attempts, result_json, pre_state_json IS NOT NULL AS rewindable, created_at, updated_at
   FROM turn_traces WHERE campaign_id = ? ORDER BY created_at DESC LIMIT ?`).all(campaignId, Math.max(1, Math.min(200, Number(limit) || 50))).map((row) => ({ ...row, result: row.result_json ? parseJson(row.result_json, null) : null, result_json: undefined }));
 
 const withCampaignLock = async (campaignId, work) => {
@@ -101,7 +107,7 @@ const safeNarrativeFallback = (execution) => execution.events.length
 const runUserTurnUnlocked = async ({ campaignId, actorId, text, narratorMessage = '', traceId: resumedTraceId = null, resumedIntent = null, resumedExecution = null }) => {
   if (typeof actorId !== 'string' || !actorId.trim()) throw new TurnError('actorId is required', 'ACTOR_REQUIRED', 400);
   if (typeof text !== 'string' || !text.trim()) throw new TurnError('text is required', 'TEXT_REQUIRED', 400);
-  const traceId = resumedTraceId || createTrace({ campaignId, actorId, inputText: text });
+  const traceId = resumedTraceId || createTrace({ campaignId, actorId, inputText: text, preState: captureWorld(campaignId) });
   try {
     let intent = resumedIntent;
     let execution = resumedExecution;
@@ -163,6 +169,54 @@ const runUserTurnUnlocked = async ({ campaignId, actorId, text, narratorMessage 
 
 const runUserTurn = (input) => withCampaignLock(input.campaignId, () => runUserTurnUnlocked(input));
 
+const restoreBeforeTrace = (trace) => {
+  const snapshot = parseJson(trace.pre_state_json, null);
+  if (!snapshot) throw new TurnError('No world snapshot available for this turn', 'SNAPSHOT_NOT_FOUND', 409, trace.id);
+  db.exec('BEGIN');
+  try {
+    for (const table of ['knowledge', 'memories', 'relationships', 'items', 'characters', 'place_connections', 'places', 'context_summaries']) {
+      db.prepare(`DELETE FROM ${table} WHERE campaign_id = ?`).run(trace.campaign_id);
+    }
+    db.prepare('DELETE FROM events WHERE campaign_id = ? AND created_at >= ?').run(trace.campaign_id, trace.created_at);
+    const campaign = (snapshot.campaigns || [])[0];
+    if (campaign) {
+      const columns = Object.keys(campaign).filter((column) => column !== 'id');
+      db.prepare(`UPDATE campaigns SET ${columns.map((column) => `${column} = ?`).join(', ')} WHERE id = ?`).run(...columns.map((column) => campaign[column]), campaign.id);
+    }
+    for (const table of ['places', 'characters', 'place_connections', 'items', 'memories', 'relationships', 'knowledge', 'context_summaries']) {
+      const rows = snapshot[table] || [];
+      for (const row of rows) {
+        const columns = Object.keys(row);
+        db.prepare(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`).run(...columns.map((column) => row[column]));
+      }
+    }
+    db.prepare('DELETE FROM turn_traces WHERE campaign_id = ? AND created_at >= ?').run(trace.campaign_id, trace.created_at);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+};
+
+const branchTurn = ({ traceId, text = null }) => {
+  const trace = getTrace(traceId);
+  if (!trace) throw new TurnError('Turn trace not found', 'TRACE_NOT_FOUND', 404, traceId);
+  return withCampaignLock(trace.campaign_id, async () => {
+    const replacement = typeof text === 'string' && text.trim() ? text.trim() : trace.input_text;
+    restoreBeforeTrace(trace);
+    return runUserTurnUnlocked({ campaignId: trace.campaign_id, actorId: trace.actor_id, text: replacement });
+  });
+};
+
+const removeTurn = (traceId) => {
+  const trace = getTrace(traceId);
+  if (!trace) throw new TurnError('Turn trace not found', 'TRACE_NOT_FOUND', 404, traceId);
+  return withCampaignLock(trace.campaign_id, async () => {
+    restoreBeforeTrace(trace);
+    return { deleted: true, traceId: trace.id, removedFrom: trace.created_at };
+  });
+};
+
 const resumeTurn = (traceId) => {
   const trace = getTrace(traceId);
   if (!trace) throw new TurnError('Turn trace not found', 'TRACE_NOT_FOUND', 404, traceId);
@@ -179,4 +233,4 @@ const resumeTurn = (traceId) => {
   }));
 };
 
-module.exports = { TurnError, getTrace, listTraces, resumeTurn, runUserTurn };
+module.exports = { TurnError, branchTurn, getTrace, listTraces, removeTurn, resumeTurn, runUserTurn };

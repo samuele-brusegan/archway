@@ -7,7 +7,7 @@ const { simulate } = require('./src/ai-simulator');
 const { interpretUserInput, interpreterModel, narrateTurn, narratorModel } = require('./src/ollama');
 const { decideCharacter, getCharacter, updatePsychology } = require('./src/npc');
 const { archiveMemory, buildCampaignSummary, createMemory, getMemory, getSummary, listMemories, relevantMemoryContext, saveSummary, updateMemory } = require('./src/memory');
-const { TurnError, getTrace, listTraces, resumeTurn, runUserTurn } = require('./src/turn-director');
+const { TurnError, branchTurn, getTrace, listTraces, removeTurn, resumeTurn, runUserTurn } = require('./src/turn-director');
 
 const port = Number(process.env.PORT || 3001);
 const ollamaUrl = process.env.OLLAMA_URL || 'http://ollama:11434';
@@ -78,6 +78,42 @@ const server = http.createServer(async (req, res) => {
   }
 
   const traceMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/turns\/([^/]+)$/);
+  const branchMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/turns\/([^/]+)\/branch$/);
+  if (req.method === 'POST' && branchMatch) {
+    try {
+      const input = await readJsonBody(req);
+      const trace = getTrace(branchMatch[2]);
+      if (!trace || trace.campaign_id !== branchMatch[1]) return sendJson(res, 404, { error: 'Turn trace not found', code: 'TRACE_NOT_FOUND' });
+      return sendJson(res, 200, await branchTurn({ traceId: branchMatch[2], text: input.text }));
+    } catch (error) {
+      const status = error instanceof TurnError ? error.status : 409;
+      return sendJson(res, status, { error: error.message, code: error.code || 'TURN_BRANCH_FAILED', ...(error.traceId ? { traceId: error.traceId } : {}) });
+    }
+  }
+
+  if (req.method === 'DELETE' && traceMatch) {
+    try {
+      const trace = getTrace(traceMatch[2]);
+      if (!trace || trace.campaign_id !== traceMatch[1]) return sendJson(res, 404, { error: 'Turn trace not found', code: 'TRACE_NOT_FOUND' });
+      return sendJson(res, 200, await removeTurn(trace.id));
+    } catch (error) {
+      const status = error instanceof TurnError ? error.status : 409;
+      return sendJson(res, status, { error: error.message, code: error.code || 'TURN_DELETE_FAILED' });
+    }
+  }
+
+  if (req.method === 'PATCH' && traceMatch) {
+    try {
+      const input = await readJsonBody(req);
+      const trace = getTrace(traceMatch[2]);
+      if (!trace || trace.campaign_id !== traceMatch[1]) return sendJson(res, 404, { error: 'Turn trace not found', code: 'TRACE_NOT_FOUND' });
+      return sendJson(res, 200, await branchTurn({ traceId: traceMatch[2], text: input.text }));
+    } catch (error) {
+      const status = error instanceof TurnError ? error.status : 409;
+      return sendJson(res, status, { error: error.message, code: error.code || 'TURN_EDIT_FAILED', ...(error.traceId ? { traceId: error.traceId } : {}) });
+    }
+  }
+
   if (req.method === 'POST' && traceMatch) {
     try {
       const trace = getTrace(traceMatch[2]);

@@ -187,6 +187,12 @@ const migrations = [
       CREATE INDEX idx_turn_traces_campaign_created ON turn_traces(campaign_id, created_at);
     `,
   },
+  {
+    version: 5,
+    sql: `
+      ALTER TABLE turn_traces ADD COLUMN pre_state_json TEXT;
+    `,
+  },
 ];
 
 const applied = new Set(db.prepare('SELECT version FROM schema_migrations').all().map((row) => row.version));
