@@ -99,6 +99,16 @@ const perception = (campaignId, characterId) => {
   return { characterId, ...visibleState(campaignId, actor), knowledge: getKnowledge(campaignId, characterId) };
 };
 
+const narrativeContext = (campaignId, characterId) => {
+  const currentCampaign = campaign(campaignId);
+  const actor = character(campaignId, characterId);
+  return {
+    campaign: { title: currentCampaign.title, genre: currentCampaign.genre, tone: currentCampaign.tone, currentTime: currentCampaign.current_time },
+    actor: { id: actor.id, name: actor.name, role: actor.role },
+    perception: perception(campaignId, characterId),
+  };
+};
+
 const executeCommand = (campaignId, input) => {
   try {
     input = validateContract('command', input);
@@ -212,4 +222,4 @@ const executeCommand = (campaignId, input) => {
   return { action, actorId, result, events };
 };
 
-module.exports = { StateError, executeCommand, getKnowledge, perception };
+module.exports = { StateError, executeCommand, getKnowledge, narrativeContext, perception };

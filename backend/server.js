@@ -1,10 +1,10 @@
 const http = require('node:http');
 const { randomUUID } = require('node:crypto');
 const { db, databasePath, tableCounts } = require('./src/db');
-const { StateError, executeCommand } = require('./src/state');
+const { StateError, executeCommand, narrativeContext } = require('./src/state');
 const { ContractError, validateContract } = require('./src/contracts');
 const { simulate } = require('./src/ai-simulator');
-const { interpretUserInput, interpreterModel } = require('./src/ollama');
+const { interpretUserInput, interpreterModel, narrateTurn, narratorModel } = require('./src/ollama');
 
 const port = Number(process.env.PORT || 3001);
 const ollamaUrl = process.env.OLLAMA_URL || 'http://ollama:11434';
@@ -62,8 +62,9 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, {
       service: 'backend',
       ai: { provider: 'ollama', url: ollamaUrl },
-      phase: 5,
+      phase: 6,
       interpreterModel,
+      narratorModel,
       database: { path: databasePath, tables: tableCounts() },
     });
   }
@@ -192,7 +193,18 @@ const server = http.createServer(async (req, res) => {
       delete command.type;
       delete command.confidence;
       const execution = executeCommand(inputMatch[1], command);
-      return sendJson(res, 200, { intent, execution });
+      let narrative;
+      let narrativeError = null;
+      try {
+        const context = narrativeContext(inputMatch[1], input.actorId);
+        narrative = await narrateTurn({ inputText: input.text, actorName: context.actor.name, context, execution });
+      } catch (error) {
+        narrativeError = error.message;
+        narrative = execution.events.length
+          ? "L'azione viene eseguita e il mondo registra la conseguenza."
+          : 'Non accade nulla di nuovo.';
+      }
+      return sendJson(res, 200, { intent, execution, narrative, narrativeFallback: Boolean(narrativeError), ...(narrativeError ? { narrativeError } : {}) });
     } catch (error) {
       const status = error instanceof ContractError ? 422 : error instanceof StateError && error.code.endsWith('_NOT_FOUND') ? 404 : 409;
       return sendJson(res, status, { error: error.message, code: error.code || 'INPUT_FAILED', path: error.path || '$' });

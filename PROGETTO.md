@@ -47,6 +47,8 @@ L'applicazione distingue sempre fra:
 
 Il modello locale non può modificare liberamente il database. Propone azioni strutturate; il motore le valida, le applica o le rifiuta spiegandone il motivo.
 
+La narrazione strettamente verificata è la modalità predefinita: il testo visibile viene composto soltanto da fatti già confermati dallo stato e dagli eventi. La narrazione generativa libera è opzionale, sperimentale e non può sostituire il controllo del motore.
+
 ### Primo rendering rapido
 
 La risposta narrativa principale non deve attendere dati opzionali come immagini, arricchimenti estetici o simulazioni non necessarie. Gli elementi secondari possono arrivare successivamente.

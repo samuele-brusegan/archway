@@ -230,6 +230,8 @@ L'utente può impartire azioni in linguaggio naturale, ma il risultato è contro
 
 ## Fase 6 — Narratore e risposta naturale
 
+Stato: **completata**.
+
 ### Obiettivo
 
 Generare una narrazione coerente basata sullo stato già aggiornato.
