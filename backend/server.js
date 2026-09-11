@@ -68,6 +68,26 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { database: databasePath, tables: tableCounts() });
   }
 
+  const perceptionMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/perception\/([^/]+)$/);
+  if (req.method === 'GET' && perceptionMatch) {
+    try {
+      const { perception } = require('./src/state');
+      return sendJson(res, 200, perception(perceptionMatch[1], perceptionMatch[2]));
+    } catch (error) {
+      return sendJson(res, 404, { error: error.message, code: error.code || 'PERCEPTION_FAILED' });
+    }
+  }
+
+  const knowledgeMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/characters\/([^/]+)\/knowledge$/);
+  if (req.method === 'GET' && knowledgeMatch) {
+    try {
+      const { getKnowledge } = require('./src/state');
+      return sendJson(res, 200, getKnowledge(knowledgeMatch[1], knowledgeMatch[2]));
+    } catch (error) {
+      return sendJson(res, 404, { error: error.message, code: error.code || 'KNOWLEDGE_FAILED' });
+    }
+  }
+
   if (req.method === 'POST' && req.url === '/api/campaigns') {
     try {
       const campaign = createCampaign(await readJsonBody(req));

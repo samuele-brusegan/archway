@@ -133,6 +133,8 @@ Una micro-avventura deterministica è giocabile dall'inizio alla fine.
 
 ## Fase 3 — Luoghi, percezione e conoscenza
 
+Stato: **completata**.
+
 ### Obiettivo
 
 Gestire luoghi semplici e complessi e impedire che i soggetti conoscano informazioni non accessibili.

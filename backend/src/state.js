@@ -52,13 +52,50 @@ const updateCampaignTime = (campaignId, value) => {
 
 const visibleState = (campaignId, actor) => {
   const currentPlace = actor.location_id ? place(campaignId, actor.location_id) : null;
-  const characters = actor.location_id
-    ? db.prepare('SELECT id, name, role, physical_description, psychological_description, location_id FROM characters WHERE campaign_id = ? AND location_id = ?').all(campaignId, actor.location_id)
+  const actorState = parseState(actor.state_json);
+  const placeState = parseState(currentPlace?.state_json);
+  const canSee = placeState.lighting !== 'dark' || actorState.hasLight === true || actorState.nightVision === true;
+  const characters = actor.location_id && canSee
+    ? db.prepare(`SELECT id, name, role, physical_description, psychological_description, location_id
+      FROM characters WHERE campaign_id = ? AND location_id = ? AND json_extract(state_json, '$.hidden') IS NOT 1`).all(campaignId, actor.location_id)
     : [];
-  const items = actor.location_id
-    ? db.prepare('SELECT id, name, description, state_json, location_id, owner_character_id FROM items WHERE campaign_id = ? AND location_id = ? AND owner_character_id IS NULL').all(campaignId, actor.location_id)
+  const items = actor.location_id && canSee
+    ? db.prepare(`SELECT id, name, description, state_json, location_id, owner_character_id
+      FROM items WHERE campaign_id = ? AND location_id = ? AND owner_character_id IS NULL
+      AND json_extract(state_json, '$.hidden') IS NOT 1`).all(campaignId, actor.location_id)
     : [];
-  return { place: currentPlace, characters, items };
+  const connections = actor.location_id
+    ? db.prepare(`SELECT * FROM place_connections WHERE campaign_id = ? AND from_place_id = ?`).all(campaignId, actor.location_id)
+      .filter((connection) => {
+        const state = parseState(connection.state_json);
+        if (!state.hidden) return true;
+        return Boolean(db.prepare(`SELECT 1 FROM knowledge WHERE character_id = ? AND subject_type = 'connection' AND subject_id = ? AND status = 'active'`).get(actor.id, connection.id));
+      })
+      .map((connection) => ({ ...connection, state_json: undefined }))
+    : [];
+  return { place: currentPlace, canSee, characters, items, connections };
+};
+
+const getKnowledge = (campaignId, characterId) => {
+  character(campaignId, characterId);
+  return db.prepare(`SELECT * FROM knowledge WHERE campaign_id = ? AND character_id = ? AND status = 'active'
+    ORDER BY updated_at DESC`).all(campaignId, characterId);
+};
+
+const addKnowledge = ({ campaignId, characterId, subjectType, subjectId, knowledgeType, content, sourceEventId, certainty = 1 }) => {
+  const id = randomUUID();
+  const current = timestamp();
+  db.prepare(`INSERT INTO knowledge (id, campaign_id, character_id, subject_type, subject_id, knowledge_type, content, source_event_id, certainty, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(character_id, subject_type, subject_id, knowledge_type) DO UPDATE SET
+      content = excluded.content, source_event_id = excluded.source_event_id,
+      certainty = excluded.certainty, updated_at = excluded.updated_at, status = 'active'`).run(
+      id, campaignId, characterId, subjectType, subjectId || null, knowledgeType || 'fact', content, sourceEventId || null, certainty, current, current);
+};
+
+const perception = (campaignId, characterId) => {
+  const actor = character(campaignId, characterId);
+  return { characterId, ...visibleState(campaignId, actor), knowledge: getKnowledge(campaignId, characterId) };
 };
 
 const executeCommand = (campaignId, input) => {
@@ -78,9 +115,12 @@ const executeCommand = (campaignId, input) => {
       result = visibleState(campaignId, actor);
     } else if (action === 'move') {
       const target = place(campaignId, input.targetPlaceId);
-      if (actor.location_id && !db.prepare(`SELECT 1 FROM place_connections
-        WHERE campaign_id = ? AND from_place_id = ? AND to_place_id = ?
-        AND json_extract(state_json, '$.blocked') IS NOT 1`).get(campaignId, actor.location_id, target.id)) {
+      const connection = actor.location_id && db.prepare(`SELECT * FROM place_connections
+        WHERE campaign_id = ? AND from_place_id = ? AND to_place_id = ?`).get(campaignId, actor.location_id, target.id);
+      const connectionState = connection ? parseState(connection.state_json) : null;
+      const discovered = connection && db.prepare(`SELECT 1 FROM knowledge
+        WHERE character_id = ? AND subject_type = 'connection' AND subject_id = ? AND status = 'active'`).get(actor.id, connection.id);
+      if (actor.location_id && (!connection || connectionState.blocked === true || connectionState.locked === true || (connectionState.hidden === true && !discovered))) {
         throw new StateError('Target place is not directly reachable', 'PLACE_NOT_REACHABLE');
       }
       db.prepare('UPDATE characters SET location_id = ?, updated_at = ? WHERE id = ?').run(target.id, timestamp(), actor.id);
@@ -127,6 +167,33 @@ const executeCommand = (campaignId, input) => {
       updateCampaignTime(campaignId, next);
       events.push(recordEvent(campaignId, 'time.advanced', actor.id, { seconds, from: currentCampaign.current_time, to: next }));
       result = { currentTime: next };
+    } else if (action === 'discover_connection') {
+      const connection = db.prepare('SELECT * FROM place_connections WHERE id = ? AND campaign_id = ?').get(input.connectionId, campaignId);
+      if (!connection) throw new StateError('Connection not found', 'CONNECTION_NOT_FOUND');
+      if (actor.location_id !== connection.from_place_id) throw new StateError('Connection is not at the current place', 'WRONG_LOCATION');
+      const connectionState = parseState(connection.state_json);
+      if (!connectionState.hidden) throw new StateError('Connection is already visible', 'ALREADY_VISIBLE');
+      const event = recordEvent(campaignId, 'connection.discovered', actor.id, { connectionId: connection.id });
+      addKnowledge({ campaignId, characterId: actor.id, subjectType: 'connection', subjectId: connection.id, knowledgeType: 'discovery', content: `Discovered connection: ${connection.name}`, sourceEventId: event.id });
+      events.push(event);
+      result = { connectionId: connection.id, discovered: true };
+    } else if (action === 'make_noise') {
+      const intensity = Number(input.intensity);
+      if (!Number.isFinite(intensity) || intensity < 1 || intensity > 100) throw new StateError('intensity must be between 1 and 100', 'INVALID_INTENSITY');
+      const event = recordEvent(campaignId, 'noise.created', actor.id, { placeId: actor.location_id, intensity, description: input.description || 'Un rumore' });
+      const listeners = db.prepare('SELECT id, location_id FROM characters WHERE campaign_id = ? AND id != ?').all(campaignId, actor.id);
+      for (const listener of listeners) {
+        if (!listener.location_id) continue;
+        const samePlace = listener.location_id === actor.location_id;
+        const adjacent = db.prepare(`SELECT 1 FROM place_connections WHERE campaign_id = ?
+          AND ((from_place_id = ? AND to_place_id = ?) OR (from_place_id = ? AND to_place_id = ?))
+          AND json_extract(state_json, '$.soundproof') IS NOT 1`).get(campaignId, actor.location_id, listener.location_id, listener.location_id, actor.location_id);
+        if (samePlace || (adjacent && intensity >= 40)) {
+          addKnowledge({ campaignId, characterId: listener.id, subjectType: 'event', subjectId: event.id, knowledgeType: 'perception', content: `Heard a noise near place ${actor.location_id}`, sourceEventId: event.id, certainty: samePlace ? 1 : 0.7 });
+        }
+      }
+      events.push(event);
+      result = { eventId: event.id, intensity };
     } else {
       throw new StateError(`Unsupported action: ${action}`, 'UNSUPPORTED_ACTION');
     }
@@ -140,4 +207,4 @@ const executeCommand = (campaignId, input) => {
   return { action, actorId, result, events };
 };
 
-module.exports = { StateError, executeCommand };
+module.exports = { StateError, executeCommand, getKnowledge, perception };
