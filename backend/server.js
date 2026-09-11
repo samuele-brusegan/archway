@@ -2,6 +2,8 @@ const http = require('node:http');
 const { randomUUID } = require('node:crypto');
 const { db, databasePath, tableCounts } = require('./src/db');
 const { StateError, executeCommand } = require('./src/state');
+const { ContractError, validateContract } = require('./src/contracts');
+const { simulate } = require('./src/ai-simulator');
 
 const port = Number(process.env.PORT || 3001);
 const ollamaUrl = process.env.OLLAMA_URL || 'http://ollama:11434';
@@ -66,6 +68,25 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && req.url === '/api/db/status') {
     return sendJson(res, 200, { database: databasePath, tables: tableCounts() });
+  }
+
+  if (req.method === 'POST' && req.url === '/api/contracts/validate') {
+    try {
+      const input = await readJsonBody(req);
+      return sendJson(res, 200, { valid: true, type: input.type, value: validateContract(input.type, input.value) });
+    } catch (error) {
+      const status = error instanceof ContractError ? 422 : 400;
+      return sendJson(res, status, { valid: false, error: error.message, code: error.code || 'CONTRACT_REQUEST_INVALID', path: error.path || '$' });
+    }
+  }
+
+  if (req.method === 'POST' && req.url === '/api/ai/simulate') {
+    try {
+      const input = await readJsonBody(req);
+      return sendJson(res, 200, { provider: 'simulator', task: input.task, value: simulate(input.task, input.input || {}) });
+    } catch (error) {
+      return sendJson(res, 422, { error: error.message, code: error.code || 'SIMULATION_FAILED', path: error.path || '$' });
+    }
   }
 
   const perceptionMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/perception\/([^/]+)$/);

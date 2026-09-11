@@ -165,6 +165,8 @@ Posizione, accessibilità e conoscenza sono calcolate dal software e non dalla d
 
 ## Fase 4 — Contratti JSON e simulatore AI
 
+Stato: **completata**.
+
 ### Obiettivo
 
 Definire un percorso sicuro fra modelli e software senza dipendere inizialmente da un modello reale.

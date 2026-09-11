@@ -1,5 +1,6 @@
 const { randomUUID } = require('node:crypto');
 const { db } = require('./db');
+const { validateContract } = require('./contracts');
 
 class StateError extends Error {
   constructor(message, code = 'STATE_INVALID') {
@@ -99,7 +100,11 @@ const perception = (campaignId, characterId) => {
 };
 
 const executeCommand = (campaignId, input) => {
-  if (!input || typeof input !== 'object') throw new StateError('Command must be an object', 'INVALID_COMMAND');
+  try {
+    input = validateContract('command', input);
+  } catch (error) {
+    throw new StateError(`${error.message} at ${error.path}`, error.code || 'INVALID_COMMAND');
+  }
   const actorId = input.actorId;
   const action = input.action;
   if (!actorId || !action) throw new StateError('actorId and action are required', 'INVALID_COMMAND');
