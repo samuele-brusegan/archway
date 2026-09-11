@@ -1,0 +1,6 @@
+.env
+backend/data/
+ollama/data/
+node_modules/
+dist/
+*.log

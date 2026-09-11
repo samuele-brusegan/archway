@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Archway</title>
+  </head>
+  <body>
+    <main>
+      <h1>Archway</h1>
+      <p>Ambiente iniziale pronto. Il motore narrativo verrà costruito per fasi.</p>
+      <pre id="status">Connessione in corso...</pre>
+    </main>
+    <script>
+      fetch('/api/system')
+        .then((response) => response.json())
+        .then((data) => {
+          document.querySelector('#status').textContent = JSON.stringify(data, null, 2);
+        })
+        .catch(() => {
+          document.querySelector('#status').textContent = 'Backend non raggiungibile';
+        });
+    </script>
+  </body>
+</html>

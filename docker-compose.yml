@@ -1,0 +1,75 @@
+name: ${COMPOSE_PROJECT_NAME:-archway}
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - app-internal
+      - proxy-shared
+    expose:
+      - "80"
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      PORT: 3001
+      DATA_DIR: /app/data
+      OLLAMA_URL: http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - app-internal
+    expose:
+      - "3001"
+    volumes:
+      - backend-data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  ollama:
+    image: ${OLLAMA_IMAGE:-ollama/ollama:latest}
+    environment:
+      OLLAMA_HOST: ${OLLAMA_HOST:-0.0.0.0:11434}
+    networks:
+      - app-internal
+      - ai-egress
+    expose:
+      - "11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    restart: unless-stopped
+
+networks:
+  app-internal:
+    name: ${COMPOSE_PROJECT_NAME:-archway}-internal
+    internal: true
+  proxy-shared:
+    external: true
+    name: ${PROXY_NETWORK:-proxy-shared}
+  ai-egress:
+    name: ${COMPOSE_PROJECT_NAME:-archway}-ai-egress
+
+volumes:
+  backend-data:
+    name: ${COMPOSE_PROJECT_NAME:-archway}-backend-data
+  ollama-data:
+    name: ${COMPOSE_PROJECT_NAME:-archway}-ollama-data
