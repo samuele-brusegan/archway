@@ -12,7 +12,8 @@ const fallbackDescription = (place, campaign) => {
 
 const enrichPlace = async (campaignId, characterId, placeId) => {
   const place = db.prepare('SELECT * FROM places WHERE id = ? AND campaign_id = ?').get(placeId, campaignId);
-  if (!place || place.description.trim()) return { enriched: false, place };
+  const placeholderDescriptions = new Set(['Il luogo iniziale della storia.', 'Il luogo iniziale della storia']);
+  if (!place || (place.description.trim() && !placeholderDescriptions.has(place.description.trim()))) return { enriched: false, place };
   const campaign = db.prepare('SELECT title, genre, tone, premise FROM campaigns WHERE id = ?').get(campaignId);
   let description;
   let source = 'fallback';
