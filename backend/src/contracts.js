@@ -62,6 +62,14 @@ const validateIntent = (payload) => {
   for (const field of ['targetPlaceId', 'connectionId', 'itemId']) {
     if (input[field] !== undefined) result[field] = string(input[field], `$.${field}`);
   }
+  if (result.action === 'move' && !result.targetPlaceId) throw new ContractError('targetPlaceId is required for move', '$.targetPlaceId');
+  if (result.action === 'traverse' && !result.connectionId) throw new ContractError('connectionId is required for traverse', '$.connectionId');
+  if (['take_item', 'drop_item', 'equip_item'].includes(result.action) && !result.itemId) throw new ContractError('itemId is required for item action', '$.itemId');
+  if (result.action === 'advance_time') result.seconds = number(input.seconds, '$.seconds', 1, 2592000);
+  if (result.action === 'make_noise') {
+    result.intensity = number(input.intensity, '$.intensity', 1, 100);
+    result.description = string(input.description, '$.description', false) || 'Un rumore';
+  }
   return result;
 };
 

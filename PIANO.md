@@ -198,6 +198,8 @@ Un modello simulato può proporre modifiche, ma soltanto il motore validato può
 
 ## Fase 5 — Primo turno con modello locale
 
+Stato: **completata**.
+
 ### Obiettivo
 
 Collegare un modello locale per interpretare l'input dell'utente e completare il primo ciclo reale.

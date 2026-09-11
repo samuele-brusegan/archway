@@ -4,6 +4,7 @@ const { db, databasePath, tableCounts } = require('./src/db');
 const { StateError, executeCommand } = require('./src/state');
 const { ContractError, validateContract } = require('./src/contracts');
 const { simulate } = require('./src/ai-simulator');
+const { interpretUserInput, interpreterModel } = require('./src/ollama');
 
 const port = Number(process.env.PORT || 3001);
 const ollamaUrl = process.env.OLLAMA_URL || 'http://ollama:11434';
@@ -61,7 +62,8 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, {
       service: 'backend',
       ai: { provider: 'ollama', url: ollamaUrl },
-      phase: 1,
+      phase: 5,
+      interpreterModel,
       database: { path: databasePath, tables: tableCounts() },
     });
   }
@@ -172,6 +174,28 @@ const server = http.createServer(async (req, res) => {
     } catch (error) {
       const status = error instanceof StateError && error.code.endsWith('_NOT_FOUND') ? 404 : 409;
       return sendJson(res, status, { error: error.message, code: error.code || 'COMMAND_FAILED' });
+    }
+  }
+
+  const inputMatch = req.url.match(/^\/api\/campaigns\/([^/]+)\/input$/);
+  if (req.method === 'POST' && inputMatch) {
+    try {
+      const input = await readJsonBody(req);
+      if (typeof input.actorId !== 'string' || !input.actorId.trim()) throw new Error('actorId is required');
+      if (typeof input.text !== 'string' || !input.text.trim()) throw new Error('text is required');
+      const { perception } = require('./src/state');
+      const available = perception(inputMatch[1], input.actorId);
+      const rawIntent = await interpretUserInput({ actorId: input.actorId, text: input.text, perception: available });
+      const intent = validateContract('intent', rawIntent);
+      if (intent.confidence < 0.45) return sendJson(res, 422, { error: 'Input not understood with sufficient confidence', code: 'LOW_CONFIDENCE', intent });
+      const command = { ...intent };
+      delete command.type;
+      delete command.confidence;
+      const execution = executeCommand(inputMatch[1], command);
+      return sendJson(res, 200, { intent, execution });
+    } catch (error) {
+      const status = error instanceof ContractError ? 422 : error instanceof StateError && error.code.endsWith('_NOT_FOUND') ? 404 : 409;
+      return sendJson(res, status, { error: error.message, code: error.code || 'INPUT_FAILED', path: error.path || '$' });
     }
   }
 
