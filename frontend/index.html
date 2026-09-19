@@ -85,6 +85,41 @@
       .story-log { min-height:0; }
       body.focus-mode main { height:calc(100vh - 60px); height:calc(100dvh - 60px); padding-bottom:.75rem; }
     }
+    /* Mobile repair: nessun elemento flottante deve coprire il composer. */
+    .composer { position:relative; }
+    .composer .private-note { position:static; width:100%; max-width:none; margin:.65rem 0 0; }
+    .composer .private-note[open] { width:100%; }
+    @media (max-width:700px) {
+      main { padding-left:.55rem; padding-right:.55rem; }
+      .topbar { margin-bottom:.35rem; padding:.1rem .15rem; }
+      .topbar .overline { font-size:.58rem; }
+      .topbar h2 { font-size:1.1rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:19rem; }
+      .campaign-meta { gap:.3rem; }
+      .campaign-meta .pill { padding:.2rem .42rem; font-size:.64rem; }
+      .scene-header { min-height:0; padding:.85rem 1rem .75rem; }
+      .scene-header h2 { font-size:1.65rem; margin:.18rem 0 .1rem; }
+      #placeDescription { line-height:1.35; max-height:2.7em; overflow:hidden; }
+      #placeDescription::after { display:none; }
+      #time { display:block; margin-top:.35rem!important; font-size:.7rem; }
+      .world-pulse { margin-bottom:.35rem; }
+      .pulse-chip { padding:.25rem .48rem; font-size:.64rem; }
+      .context-strip { min-height:45px; padding:.45rem .7rem; gap:.35rem; }
+      .context-label { font-size:.58rem; }
+      .context-action { padding:.4rem .58rem; font-size:.68rem; }
+      .context-action:nth-of-type(n+4) { display:none; }
+      .story-log { padding:.8rem .7rem; gap:.85rem; }
+      .composer { padding:.65rem .7rem .7rem; }
+      .quick-actions { margin-bottom:.45rem; gap:.3rem; }
+      .quick-actions button { padding:.4rem .6rem; font-size:.68rem; }
+      .composer-shell textarea { min-height:64px; padding:.7rem .75rem .35rem; font-size:.95rem; }
+      .composer-hint { padding:.05rem .65rem .4rem; font-size:.6rem; }
+      .composer > .row { margin-top:.55rem!important; padding-bottom:0; justify-content:space-between; }
+      #sendTurn { position:static; width:42px; height:42px; flex:0 0 42px; }
+      #turnMessage { font-size:.7rem; margin-right:0; }
+      .private-note { border-radius:10px; padding:.45rem .6rem; }
+      .private-note summary { font-size:.7rem; }
+      .private-note textarea { min-height:58px; }
+    }
   </style>
 </head>
 <body>
