@@ -1,5 +1,6 @@
 const ACTIONS = new Set([
   'observe', 'move', 'traverse', 'take_item', 'drop_item', 'equip_item',
+  'unequip_item', 'use_item', 'talk', 'adjust_relationship',
   'advance_time', 'discover_connection', 'make_noise',
 ]);
 
@@ -40,7 +41,14 @@ const validateCommand = (payload) => {
   const result = { actorId, action };
   if (action === 'move') result.targetPlaceId = string(input.targetPlaceId, '$.targetPlaceId');
   if (action === 'traverse') result.connectionId = string(input.connectionId, '$.connectionId');
-  if (['take_item', 'drop_item', 'equip_item'].includes(action)) result.itemId = string(input.itemId, '$.itemId');
+  if (['take_item', 'drop_item', 'equip_item', 'unequip_item', 'use_item'].includes(action)) result.itemId = string(input.itemId, '$.itemId');
+  if (['talk', 'adjust_relationship'].includes(action)) result.targetCharacterId = string(input.targetCharacterId, '$.targetCharacterId');
+  if (action === 'talk') result.message = string(input.message, '$.message');
+  if (action === 'adjust_relationship') {
+    result.metric = string(input.metric, '$.metric');
+    result.delta = number(input.delta, '$.delta', -100, 100);
+    result.reasonEventId = string(input.reasonEventId, '$.reasonEventId', false) || null;
+  }
   if (action === 'advance_time') result.seconds = number(input.seconds, '$.seconds', 1, 2592000);
   if (action === 'discover_connection') result.connectionId = string(input.connectionId, '$.connectionId');
   if (action === 'make_noise') {
@@ -59,12 +67,18 @@ const validateIntent = (payload) => {
     confidence: input.confidence === undefined ? 1 : number(input.confidence, '$.confidence', 0, 1),
   };
   if (!ACTIONS.has(result.action)) throw new ContractError(`Unsupported action: ${result.action}`, '$.action');
-  for (const field of ['targetPlaceId', 'connectionId', 'itemId']) {
+  for (const field of ['targetPlaceId', 'connectionId', 'itemId', 'targetCharacterId', 'message', 'metric', 'reasonEventId']) {
     if (input[field] !== undefined) result[field] = string(input[field], `$.${field}`);
   }
   if (result.action === 'move' && !result.targetPlaceId) throw new ContractError('targetPlaceId is required for move', '$.targetPlaceId');
   if (result.action === 'traverse' && !result.connectionId) throw new ContractError('connectionId is required for traverse', '$.connectionId');
-  if (['take_item', 'drop_item', 'equip_item'].includes(result.action) && !result.itemId) throw new ContractError('itemId is required for item action', '$.itemId');
+  if (['take_item', 'drop_item', 'equip_item', 'unequip_item', 'use_item'].includes(result.action) && !result.itemId) throw new ContractError('itemId is required for item action', '$.itemId');
+  if (['talk', 'adjust_relationship'].includes(result.action) && !result.targetCharacterId) throw new ContractError('targetCharacterId is required', '$.targetCharacterId');
+  if (result.action === 'talk' && !result.message) throw new ContractError('message is required for talk', '$.message');
+  if (result.action === 'adjust_relationship') {
+    if (!result.metric) throw new ContractError('metric is required', '$.metric');
+    result.delta = number(input.delta, '$.delta', -100, 100);
+  }
   if (result.action === 'advance_time') result.seconds = number(input.seconds, '$.seconds', 1, 2592000);
   if (result.action === 'make_noise') {
     result.intensity = number(input.intensity, '$.intensity', 1, 100);

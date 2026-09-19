@@ -397,6 +397,8 @@ La campagna è giocabile e amministrabile dall'interfaccia, senza strumenti tecn
 
 ## Fase 11 — Campagna dimostrativa e validazione finale
 
+Stato: **completata**.
+
 ### Obiettivo
 
 Dimostrare che il sistema finale è funzionale, coerente e riproducibile.
@@ -434,6 +436,19 @@ Decidere quali funzioni sono affidabili, quali sono sperimentali e quali devono 
 ### Criterio di uscita
 
 Esiste una versione dimostrabile, debuggabile e utilizzabile, con limiti noti e una base solida per le estensioni future.
+
+### Esito del checkpoint
+
+- campagna dimostrativa riproducibile disponibile dall'onboarding;
+- test d'integrazione su mondo, inventario, dialogo, eventi ritardati, memorie, riassunti, versioni, ripristino, export/import e fallback AI;
+- migrazione del database verificata sul volume persistente esistente;
+- backend e frontend ricostruiti e avviati in Docker senza perdita dei dati;
+- route health verificata attraverso il gateway Nginx;
+- modello Ollama configurato verificato con risposta JSON valida;
+- sintassi backend e script frontend verificata in Node 22;
+- configurazioni Compose standard, sviluppo, test e GPU validate.
+
+Limite noto: il progetto non gestisce autenticazione, TLS, dominio o proxy esterno; restano responsabilità dell'infrastruttura che pubblica il frontend, come stabilito nel perimetro iniziale.
 
 ## Ordine delle priorità
 

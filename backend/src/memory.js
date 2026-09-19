@@ -1,10 +1,19 @@
 const { randomUUID } = require('node:crypto');
 const { db } = require('./db');
+const { validateContract } = require('./contracts');
 
 const memoryTypes = new Set(['fact', 'opinion', 'rumor', 'suspicion', 'memory', 'goal', 'secret']);
 const sources = new Set(['user', 'narrator', 'event', 'character']);
 const statuses = new Set(['active', 'superseded', 'contradicted', 'archived']);
 const now = () => new Date().toISOString();
+
+const audit = (campaignId, characterId, type, payload) => db.prepare(`INSERT INTO events
+  (id, campaign_id, type, actor_id, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+  .run(randomUUID(), campaignId, type, characterId, JSON.stringify(payload), now());
+
+const versionMemory = (memory) => db.prepare(`INSERT INTO memory_versions
+  (id, memory_id, campaign_id, character_id, snapshot_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+  .run(randomUUID(), memory.id, memory.campaign_id, memory.character_id, JSON.stringify(memory), now());
 
 const requireCharacter = (campaignId, characterId) => {
   const result = db.prepare('SELECT id FROM characters WHERE id = ? AND campaign_id = ?').get(characterId, campaignId);
@@ -31,8 +40,13 @@ const createMemory = (campaignId, characterId, input) => {
   const value = normalizeMemory(input);
   const id = randomUUID();
   const timestamp = now();
-  db.prepare(`INSERT INTO memories (id, campaign_id, character_id, content, type, source, reliability, importance, status, location_id, occurred_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, campaignId, characterId, value.content, value.type, value.source, value.reliability, value.importance, value.status, value.locationId, value.occurredAt, timestamp, timestamp);
+  db.exec('BEGIN');
+  try {
+    db.prepare(`INSERT INTO memories (id, campaign_id, character_id, content, type, source, reliability, importance, status, location_id, occurred_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, campaignId, characterId, value.content, value.type, value.source, value.reliability, value.importance, value.status, value.locationId, value.occurredAt, timestamp, timestamp);
+    audit(campaignId, characterId, 'memory.created', { memoryId: id, type: value.type });
+    db.exec('COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
   return getMemory(campaignId, characterId, id);
 };
 
@@ -53,8 +67,14 @@ const updateMemory = (campaignId, characterId, memoryId, input) => {
   const current = getMemory(campaignId, characterId, memoryId);
   const value = normalizeMemory({ ...current, ...input });
   const timestamp = now();
-  db.prepare(`UPDATE memories SET content = ?, type = ?, source = ?, reliability = ?, importance = ?, status = ?, location_id = ?, occurred_at = ?, updated_at = ?
-    WHERE id = ? AND campaign_id = ? AND character_id = ?`).run(value.content, value.type, value.source, value.reliability, value.importance, value.status, value.locationId, value.occurredAt, timestamp, memoryId, campaignId, characterId);
+  db.exec('BEGIN');
+  try {
+    versionMemory(current);
+    db.prepare(`UPDATE memories SET content = ?, type = ?, source = ?, reliability = ?, importance = ?, status = ?, location_id = ?, occurred_at = ?, updated_at = ?
+      WHERE id = ? AND campaign_id = ? AND character_id = ?`).run(value.content, value.type, value.source, value.reliability, value.importance, value.status, value.locationId, value.occurredAt, timestamp, memoryId, campaignId, characterId);
+    audit(campaignId, characterId, value.status === 'archived' ? 'memory.archived' : 'memory.updated', { memoryId, previousVersionAt: current.updated_at });
+    db.exec('COMMIT');
+  } catch (error) { db.exec('ROLLBACK'); throw error; }
   return getMemory(campaignId, characterId, memoryId);
 };
 
@@ -86,12 +106,14 @@ const relevantMemoryContext = (campaignId, characterId, { query = '', locationId
 
 const saveSummary = (campaignId, scopeType, scopeId, summary, tokenBudget = 1000) => {
   if (!['scene', 'arc', 'campaign', 'character'].includes(scopeType)) throw new Error('Invalid summary scope');
+  summary = validateContract('summary', summary);
   const timestamp = now();
   const id = randomUUID();
   db.prepare(`INSERT INTO context_summaries (id, campaign_id, scope_type, scope_id, summary_json, token_budget, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(campaign_id, scope_type, scope_id) DO UPDATE SET summary_json = excluded.summary_json, token_budget = excluded.token_budget, updated_at = excluded.updated_at`)
     .run(id, campaignId, scopeType, scopeId || null, JSON.stringify(summary), tokenBudget, timestamp, timestamp);
+  audit(campaignId, scopeType === 'character' ? scopeId : null, 'summary.updated', { scopeType, scopeId: scopeId || null });
   return getSummary(campaignId, scopeType, scopeId);
 };
 
@@ -102,9 +124,21 @@ const getSummary = (campaignId, scopeType, scopeId = null) => {
 };
 
 const buildCampaignSummary = (campaignId, scopeType = 'campaign', scopeId = null) => {
-  const events = db.prepare('SELECT type, payload_json, created_at FROM events WHERE campaign_id = ? ORDER BY created_at DESC LIMIT 20').all(campaignId);
-  const confirmedFacts = events.reverse().map((event) => `${event.type} (${event.created_at})`);
-  return saveSummary(campaignId, scopeType, scopeId, { sceneSummary: confirmedFacts.slice(-5).join('; ') || 'Nessun evento registrato.', confirmedFacts, assumptions: [], openQuestions: [], activeThreats: [], activeGoals: [], unresolvedContradictions: [], recentChanges: confirmedFacts.slice(-5) });
+  const events = db.prepare('SELECT type, payload_json, created_at FROM events WHERE campaign_id = ? ORDER BY created_at DESC LIMIT 40').all(campaignId);
+  const facts = events.reverse().map((event) => {
+    const payload = (() => { try { return JSON.parse(event.payload_json); } catch { return {}; } })();
+    const detail = payload.description || payload.title || payload.name || payload.action || '';
+    return `${event.type}${detail ? `: ${detail}` : ''} (${event.created_at})`;
+  });
+  const activeGoals = db.prepare("SELECT title FROM missions WHERE campaign_id = ? AND status = 'active' ORDER BY updated_at DESC").all(campaignId).map((row) => row.title);
+  const recentChanges = facts.slice(-8);
+  return saveSummary(campaignId, scopeType, scopeId, { sceneSummary: recentChanges.join('; ') || 'Nessun evento registrato.', confirmedFacts: facts, assumptions: [], openQuestions: [], activeThreats: [], activeGoals, unresolvedContradictions: [], recentChanges });
 };
 
-module.exports = { archiveMemory, buildCampaignSummary, createMemory, getMemory, getSummary, listMemories, relevantMemoryContext, saveSummary, updateMemory };
+const listMemoryVersions = (campaignId, characterId, memoryId) => {
+  getMemory(campaignId, characterId, memoryId);
+  return db.prepare('SELECT id, memory_id, snapshot_json, created_at FROM memory_versions WHERE campaign_id = ? AND character_id = ? AND memory_id = ? ORDER BY created_at DESC').all(campaignId, characterId, memoryId)
+    .map((row) => ({ ...row, snapshot: JSON.parse(row.snapshot_json), snapshot_json: undefined }));
+};
+
+module.exports = { archiveMemory, buildCampaignSummary, createMemory, getMemory, getSummary, listMemories, listMemoryVersions, relevantMemoryContext, saveSummary, updateMemory };

@@ -62,6 +62,14 @@ const safeNarrative = ({ context, execution }) => {
       return 'Lasci l’oggetto nel luogo in cui ti trovi.';
     case 'equip_item':
       return 'Equipaggi l’oggetto.';
+    case 'unequip_item':
+      return 'Riponi l’oggetto nel tuo inventario.';
+    case 'use_item':
+      return 'Usi l’oggetto.';
+    case 'talk':
+      return 'Le tue parole vengono udite dal personaggio presente.';
+    case 'adjust_relationship':
+      return 'La relazione cambia in conseguenza degli eventi.';
     case 'advance_time':
       return 'Il tempo passa.';
     case 'discover_connection':
@@ -91,15 +99,16 @@ const narrateTurn = async ({ inputText, narratorMessage = '', actorName, context
 };
 
 const interpretUserInput = async ({ actorId, text, perception }) => {
-  const system = `You are Archway's command interpreter. Convert the user's Italian natural-language action into exactly one JSON object. Never narrate. Never invent IDs. Use only the listed action names and IDs. If the request is unclear, use action "observe" with confidence 0.0. Allowed actions: observe, move, traverse, take_item, drop_item, equip_item, advance_time, discover_connection, make_noise.`;
+  const system = `You are Archway's command interpreter. Convert the user's Italian natural-language action into exactly one JSON object. Never narrate. Never invent IDs. Use only the listed action names and IDs. If the request is unclear, use action "observe" with confidence 0.0. Allowed actions: observe, move, traverse, take_item, drop_item, equip_item, unequip_item, use_item, talk, advance_time, discover_connection, make_noise. Relationship changes are consequences applied by the software and must never be selected from user text.`;
   const user = JSON.stringify({
     actorId,
     text,
     availableContext: {
       currentPlace: perception.place ? { id: perception.place.id, name: perception.place.name } : null,
       visibleItems: perception.items.map((item) => ({ id: item.id, name: item.name })),
+      inventory: perception.inventory.map((item) => ({ id: item.id, name: item.name })),
       visibleConnections: perception.connections.map((connection) => ({ id: connection.id, name: connection.name })),
-      knownCharacters: perception.knowledge.filter((item) => item.subject_type === 'character').map((item) => item.subject_id),
+      presentCharacters: perception.characters.map((character) => ({ id: character.id, name: character.name })),
     },
     outputShape: {
       actorId,
@@ -108,6 +117,8 @@ const interpretUserInput = async ({ actorId, text, perception }) => {
       targetPlaceId: 'only when moving',
       connectionId: 'only when traversing or discovering',
       itemId: 'only when using inventory',
+      targetCharacterId: 'only when talking',
+      message: 'only when talking',
       seconds: 'only when advancing time',
       intensity: 'only when making noise',
     },

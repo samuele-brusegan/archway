@@ -5,6 +5,8 @@ const { validateContract, ContractError } = require('./contracts');
 const { simulate } = require('./ai-simulator');
 const { interpretUserInput, narrateTurn } = require('./ollama');
 const { enrichPlace } = require('./world');
+const { buildCampaignSummary } = require('./memory');
+const { reactToExecution } = require('./npc');
 
 const maxAttempts = Math.max(1, Number(process.env.TURN_MAX_ATTEMPTS || 2));
 const campaignLocks = new Map();
@@ -23,11 +25,14 @@ const parseJson = (value, fallback) => {
   try { return JSON.parse(value); } catch { return fallback; }
 };
 
-const worldTables = ['campaigns', 'characters', 'places', 'place_connections', 'items', 'memories', 'relationships', 'knowledge', 'context_summaries'];
+const worldTables = ['campaigns', 'characters', 'places', 'place_connections', 'items', 'memories', 'memory_versions', 'relationships', 'knowledge', 'context_summaries', 'factions', 'missions', 'scheduled_events'];
 
-const captureWorld = (campaignId) => Object.fromEntries(worldTables.map((table) => [table, table === 'campaigns'
-  ? db.prepare('SELECT * FROM campaigns WHERE id = ?').all(campaignId)
-  : db.prepare(`SELECT * FROM ${table} WHERE campaign_id = ?`).all(campaignId)]));
+const captureWorld = (campaignId) => ({
+  ...Object.fromEntries(worldTables.map((table) => [table, table === 'campaigns'
+    ? db.prepare('SELECT * FROM campaigns WHERE id = ?').all(campaignId)
+    : db.prepare(`SELECT * FROM ${table} WHERE campaign_id = ?`).all(campaignId)])),
+  faction_members: db.prepare('SELECT fm.* FROM faction_members fm JOIN factions f ON f.id = fm.faction_id WHERE f.campaign_id = ?').all(campaignId),
+});
 
 const createTrace = ({ campaignId, actorId, inputText, preState }) => {
   const id = randomUUID();
@@ -141,6 +146,8 @@ const runUserTurnUnlocked = async ({ campaignId, actorId, text, narratorMessage 
       }
       execution = executeCommand(campaignId, command);
       appendTrace(traceId, 'applied', { execution });
+      const reactions = reactToExecution({ campaignId, actorId, execution });
+      if (reactions.length) appendTrace(traceId, 'characters_reacted', { reactions });
     }
     let narrative;
     let narrativeFallback = false;
@@ -158,6 +165,11 @@ const runUserTurnUnlocked = async ({ campaignId, actorId, text, narratorMessage 
     const result = { traceId, intent, execution, narrative, narrativeFallback, ...(narrativeError ? { narrativeError } : {}) };
     appendTrace(traceId, 'narrated.result', { fallback: narrativeFallback, narrative });
     setTrace(traceId, { status: 'narrated', result_json: JSON.stringify(result) });
+    const completedTurns = db.prepare("SELECT COUNT(*) AS count FROM turn_traces WHERE campaign_id = ? AND status = 'narrated'").get(campaignId).count;
+    if (completedTurns > 0 && completedTurns % 5 === 0) {
+      const summary = buildCampaignSummary(campaignId);
+      appendTrace(traceId, 'summary_refreshed', { summaryId: summary.id });
+    }
     return result;
   } catch (error) {
     const failure = error instanceof TurnError ? error : new TurnError(error.message, error.code || 'TURN_FAILED', 409, traceId);
@@ -174,7 +186,8 @@ const restoreBeforeTrace = (trace) => {
   if (!snapshot) throw new TurnError('No world snapshot available for this turn', 'SNAPSHOT_NOT_FOUND', 409, trace.id);
   db.exec('BEGIN');
   try {
-    for (const table of ['knowledge', 'memories', 'relationships', 'items', 'characters', 'place_connections', 'places', 'context_summaries']) {
+    db.prepare('DELETE FROM faction_members WHERE faction_id IN (SELECT id FROM factions WHERE campaign_id = ?)').run(trace.campaign_id);
+    for (const table of ['knowledge', 'memory_versions', 'memories', 'relationships', 'items', 'characters', 'place_connections', 'places', 'context_summaries', 'missions', 'scheduled_events', 'factions']) {
       db.prepare(`DELETE FROM ${table} WHERE campaign_id = ?`).run(trace.campaign_id);
     }
     db.prepare('DELETE FROM events WHERE campaign_id = ? AND created_at >= ?').run(trace.campaign_id, trace.created_at);
@@ -183,7 +196,7 @@ const restoreBeforeTrace = (trace) => {
       const columns = Object.keys(campaign).filter((column) => column !== 'id');
       db.prepare(`UPDATE campaigns SET ${columns.map((column) => `${column} = ?`).join(', ')} WHERE id = ?`).run(...columns.map((column) => campaign[column]), campaign.id);
     }
-    for (const table of ['places', 'characters', 'place_connections', 'items', 'memories', 'relationships', 'knowledge', 'context_summaries']) {
+    for (const table of ['places', 'characters', 'place_connections', 'items', 'memories', 'memory_versions', 'relationships', 'knowledge', 'context_summaries', 'factions', 'faction_members', 'missions', 'scheduled_events']) {
       const rows = snapshot[table] || [];
       for (const row of rows) {
         const columns = Object.keys(row);

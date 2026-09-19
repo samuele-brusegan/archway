@@ -193,6 +193,73 @@ const migrations = [
       ALTER TABLE turn_traces ADD COLUMN pre_state_json TEXT;
     `,
   },
+  {
+    version: 6,
+    sql: `
+      CREATE TABLE factions (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        state_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE faction_members (
+        faction_id TEXT NOT NULL REFERENCES factions(id) ON DELETE CASCADE,
+        character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+        role TEXT NOT NULL DEFAULT 'member',
+        reputation INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (faction_id, character_id)
+      );
+
+      CREATE TABLE missions (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        state_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE scheduled_events (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        event_type TEXT NOT NULL,
+        due_at TEXT NOT NULL,
+        payload_json TEXT NOT NULL DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'scheduled',
+        created_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+
+      CREATE TABLE campaign_versions (
+        id TEXT PRIMARY KEY,
+        campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        label TEXT NOT NULL,
+        snapshot_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE memory_versions (
+        id TEXT PRIMARY KEY,
+        memory_id TEXT NOT NULL,
+        campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+        character_id TEXT NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+        snapshot_json TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE INDEX idx_factions_campaign ON factions(campaign_id);
+      CREATE INDEX idx_missions_campaign_status ON missions(campaign_id, status);
+      CREATE INDEX idx_scheduled_events_due ON scheduled_events(campaign_id, status, due_at);
+      CREATE INDEX idx_campaign_versions_created ON campaign_versions(campaign_id, created_at);
+      CREATE INDEX idx_memory_versions_memory ON memory_versions(memory_id, created_at);
+    `,
+  },
 ];
 
 const applied = new Set(db.prepare('SELECT version FROM schema_migrations').all().map((row) => row.version));
@@ -211,7 +278,7 @@ for (const migration of migrations) {
 }
 
 const tableCounts = () => {
-  const tables = ['campaigns', 'characters', 'places', 'place_connections', 'items', 'memories', 'relationships', 'knowledge', 'context_summaries', 'turn_traces', 'events'];
+  const tables = ['campaigns', 'characters', 'places', 'place_connections', 'items', 'memories', 'relationships', 'knowledge', 'context_summaries', 'turn_traces', 'events', 'factions', 'faction_members', 'missions', 'scheduled_events', 'campaign_versions', 'memory_versions'];
   return Object.fromEntries(tables.map((table) => [table, db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count]));
 };
 

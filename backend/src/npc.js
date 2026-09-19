@@ -49,4 +49,24 @@ const updatePsychology = ({ campaignId, characterId, changes, reasonEventId }) =
   }
 };
 
-module.exports = { decideCharacter, getCharacter, updatePsychology };
+const reactToExecution = ({ campaignId, actorId, execution }) => {
+  const actor = getCharacter(campaignId, actorId);
+  if (!actor?.location_id) return [];
+  const nearby = db.prepare(`SELECT * FROM characters WHERE campaign_id = ? AND location_id = ? AND id != ? AND role != 'protagonist' ORDER BY created_at LIMIT 3`)
+    .all(campaignId, actor.location_id, actorId);
+  const motivatingEvent = execution.events?.[0];
+  if (!motivatingEvent) return [];
+  return nearby.map((npc) => {
+    const state = parseState(npc.state_json);
+    const psychology = { ...(state.psychology || {}) };
+    if (execution.action === 'make_noise') psychology.stress = Math.min(100, Number(psychology.stress || 0) + 5);
+    if (execution.action === 'talk') psychology.curiosity = Math.min(100, Number(psychology.curiosity || 0) + 2);
+    db.prepare('UPDATE characters SET state_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify({ ...state, psychology }), new Date().toISOString(), npc.id);
+    const eventId = require('node:crypto').randomUUID();
+    db.prepare(`INSERT INTO events (id, campaign_id, type, actor_id, payload_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(eventId, campaignId, 'character.reacted', npc.id, JSON.stringify({ reasonEventId: motivatingEvent.id, action: execution.action, psychology }), new Date().toISOString());
+    return { characterId: npc.id, reasonEventId: motivatingEvent.id, psychology };
+  });
+};
+
+module.exports = { decideCharacter, getCharacter, reactToExecution, updatePsychology };

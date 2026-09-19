@@ -1,7 +1,7 @@
 const { randomUUID } = require('node:crypto');
 const { db } = require('./db');
 const { validateContract } = require('./contracts');
-const { relevantMemoryContext } = require('./memory');
+const { getSummary, relevantMemoryContext } = require('./memory');
 
 class StateError extends Error {
   constructor(message, code = 'STATE_INVALID') {
@@ -75,7 +75,8 @@ const visibleState = (campaignId, actor) => {
       })
       .map((connection) => ({ ...connection, state_json: undefined }))
     : [];
-  return { place: currentPlace, canSee, characters, items, connections };
+  const inventory = db.prepare('SELECT id, name, description, state_json FROM items WHERE campaign_id = ? AND owner_character_id = ?').all(campaignId, actor.id);
+  return { place: currentPlace, canSee, characters, items, inventory, connections };
 };
 
 const getKnowledge = (campaignId, characterId) => {
@@ -108,6 +109,10 @@ const narrativeContext = (campaignId, characterId, query = '') => {
     actor: { id: actor.id, name: actor.name, role: actor.role },
     perception: perception(campaignId, characterId),
     memory: relevantMemoryContext(campaignId, characterId, { query, locationId: actor.location_id }),
+    summaries: {
+      campaign: getSummary(campaignId, 'campaign'),
+      character: getSummary(campaignId, 'character', characterId),
+    },
   };
 };
 
@@ -177,13 +182,64 @@ const executeCommand = (campaignId, input) => {
       db.prepare('UPDATE characters SET state_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify({ ...state, equipment }), timestamp(), actor.id);
       events.push(recordEvent(campaignId, 'item.equipped', actor.id, { itemId: item.id }));
       result = { itemId: item.id, equipped: true };
+    } else if (action === 'unequip_item') {
+      const item = db.prepare(`SELECT * FROM items WHERE id = ? AND campaign_id = ? AND owner_character_id = ?`).get(input.itemId, campaignId, actor.id);
+      if (!item) throw new StateError('Character does not own this item', 'ITEM_NOT_OWNED');
+      const state = parseState(actor.state_json);
+      const equipment = (Array.isArray(state.equipment) ? state.equipment : []).filter((id) => id !== item.id);
+      db.prepare('UPDATE characters SET state_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify({ ...state, equipment }), timestamp(), actor.id);
+      events.push(recordEvent(campaignId, 'item.unequipped', actor.id, { itemId: item.id }));
+      result = { itemId: item.id, equipped: false };
+    } else if (action === 'use_item') {
+      const item = db.prepare(`SELECT * FROM items WHERE id = ? AND campaign_id = ? AND owner_character_id = ?`).get(input.itemId, campaignId, actor.id);
+      if (!item) throw new StateError('Character does not own this item', 'ITEM_NOT_OWNED');
+      const itemState = parseState(item.state_json);
+      if (itemState.usable === false) throw new StateError('Item cannot be used', 'ITEM_NOT_USABLE');
+      const remainingUses = Number.isInteger(itemState.uses) ? itemState.uses - 1 : null;
+      if (itemState.consumable === true && (remainingUses === null || remainingUses <= 0)) {
+        const actorState = parseState(actor.state_json);
+        const equipment = (Array.isArray(actorState.equipment) ? actorState.equipment : []).filter((id) => id !== item.id);
+        db.prepare('UPDATE characters SET state_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify({ ...actorState, equipment }), timestamp(), actor.id);
+        db.prepare('DELETE FROM items WHERE id = ?').run(item.id);
+      }
+      else if (remainingUses !== null) db.prepare('UPDATE items SET state_json = ?, updated_at = ? WHERE id = ?').run(JSON.stringify({ ...itemState, uses: remainingUses }), timestamp(), item.id);
+      events.push(recordEvent(campaignId, 'item.used', actor.id, { itemId: item.id, consumed: itemState.consumable === true && (remainingUses === null || remainingUses <= 0) }));
+      result = { itemId: item.id, used: true, remainingUses };
+    } else if (action === 'talk') {
+      const target = character(campaignId, input.targetCharacterId);
+      if (target.id === actor.id) throw new StateError('Character cannot talk to itself', 'INVALID_TARGET');
+      if (!actor.location_id || target.location_id !== actor.location_id) throw new StateError('Target character is not present', 'TARGET_NOT_PRESENT');
+      const event = recordEvent(campaignId, 'dialogue.spoken', actor.id, { targetCharacterId: target.id, message: input.message });
+      addKnowledge({ campaignId, characterId: target.id, subjectType: 'event', subjectId: event.id, knowledgeType: 'dialogue', content: `${actor.name}: ${input.message}`, sourceEventId: event.id });
+      events.push(event);
+      result = { targetCharacterId: target.id, message: input.message };
+    } else if (action === 'adjust_relationship') {
+      const target = character(campaignId, input.targetCharacterId);
+      if (target.id === actor.id) throw new StateError('Relationship requires two characters', 'INVALID_TARGET');
+      if (input.reasonEventId && !db.prepare('SELECT id FROM events WHERE id = ? AND campaign_id = ?').get(input.reasonEventId, campaignId)) throw new StateError('Reason event not found', 'EVENT_NOT_FOUND');
+      const current = db.prepare('SELECT * FROM relationships WHERE campaign_id = ? AND from_character_id = ? AND to_character_id = ?').get(campaignId, actor.id, target.id);
+      const state = parseState(current?.state_json);
+      const previous = Number(state[input.metric] || 0);
+      const next = Math.max(-100, Math.min(100, previous + input.delta));
+      const relationshipId = current?.id || randomUUID();
+      db.prepare(`INSERT INTO relationships (id, campaign_id, from_character_id, to_character_id, state_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(from_character_id, to_character_id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at`)
+        .run(relationshipId, campaignId, actor.id, target.id, JSON.stringify({ ...state, [input.metric]: next }), timestamp(), timestamp());
+      events.push(recordEvent(campaignId, 'relationship.changed', actor.id, { targetCharacterId: target.id, metric: input.metric, from: previous, to: next, reasonEventId: input.reasonEventId || null }));
+      result = { targetCharacterId: target.id, metric: input.metric, value: next };
     } else if (action === 'advance_time') {
       const seconds = Number(input.seconds);
       if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 86400 * 30) throw new StateError('seconds must be between 1 and 2592000', 'INVALID_DURATION');
       const next = new Date(new Date(currentCampaign.current_time).getTime() + seconds * 1000).toISOString();
       updateCampaignTime(campaignId, next);
       events.push(recordEvent(campaignId, 'time.advanced', actor.id, { seconds, from: currentCampaign.current_time, to: next }));
-      result = { currentTime: next };
+      const due = db.prepare("SELECT * FROM scheduled_events WHERE campaign_id = ? AND status = 'scheduled' AND due_at <= ? ORDER BY due_at").all(campaignId, next);
+      for (const scheduled of due) {
+        const payload = parseState(scheduled.payload_json);
+        events.push(recordEvent(campaignId, scheduled.event_type, null, { ...payload, scheduledEventId: scheduled.id }));
+        db.prepare("UPDATE scheduled_events SET status = 'completed', completed_at = ? WHERE id = ?").run(timestamp(), scheduled.id);
+      }
+      result = { currentTime: next, triggeredEvents: due.map((entry) => entry.id) };
     } else if (action === 'discover_connection') {
       const connection = db.prepare('SELECT * FROM place_connections WHERE id = ? AND campaign_id = ?').get(input.connectionId, campaignId);
       if (!connection) throw new StateError('Connection not found', 'CONNECTION_NOT_FOUND');
