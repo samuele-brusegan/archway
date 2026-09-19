@@ -150,6 +150,32 @@
       .composer .private-note { margin:.2rem 0 0; padding:.35rem .55rem; }
       .composer .private-note summary { font-size:.68rem; }
     }
+    @media (max-width:700px) {
+      /* Sul telefono la cronologia è il contenuto principale: header e composer cedono spazio. */
+      .scene-header { padding:.55rem .8rem .65rem; }
+      .scene-header h2 { font-size:1.48rem; margin:.1rem 0 .05rem; }
+      .scene-kicker { font-size:.58rem; }
+      .world-pulse { position:absolute; top:.55rem; right:.8rem; margin:0; gap:.3rem; }
+      .pulse-chip { padding:.22rem .42rem; font-size:.6rem; }
+      #placeDescription { font-size:.82rem; line-height:1.25; }
+      #time { font-size:.62rem; margin-top:.2rem!important; }
+      .story-log { padding:.65rem .55rem; gap:.7rem; }
+      .story-entry { max-width:100%; grid-template-columns:28px 1fr; gap:.5rem; }
+      .story-entry.user { grid-template-columns:1fr 28px; }
+      .story-avatar { width:28px; height:28px; border-radius:9px; }
+      .story-copy { padding:.65rem .75rem; font-size:.92rem; }
+      .story-meta { font-size:.62rem; }
+      .context-strip { min-height:0; padding:.28rem .5rem; gap:.3rem; }
+      .context-label { font-size:.54rem; }
+      .context-action { padding:.32rem .5rem; font-size:.64rem; }
+      .composer { gap:.25rem; padding:.4rem .55rem .45rem; }
+      .composer-input textarea { min-height:48px; padding:.55rem 3.4rem .35rem .65rem; }
+      .composer-input #sendTurn { width:36px; height:36px; right:.5rem; }
+      .composer-hint { padding:.02rem .5rem .18rem; font-size:.52rem; }
+      .composer .private-note { margin:.05rem 0 0; padding:.25rem .45rem; }
+      .composer .private-note summary { font-size:.62rem; }
+      .composer-status { display:none; }
+    }
   </style>
 </head>
 <body>
