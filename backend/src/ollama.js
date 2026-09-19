@@ -1,4 +1,7 @@
-const defaultTimeout = Number(process.env.OLLAMA_TIMEOUT_MS || 30000);
+// Keep a turn inside the reverse-proxy window. A turn can use the model twice
+// (interpretation and narration), so one retry at 60s would leave the browser
+// waiting forever before the proxy can return the fallback.
+const defaultTimeout = Number(process.env.OLLAMA_TIMEOUT_MS || 25000);
 const ollamaUrl = process.env.OLLAMA_URL || 'http://ollama:11434';
 const interpreterModel = process.env.OLLAMA_INTERPRETER_MODEL || 'MODEL_PLACEHOLDER';
 const characterModel = process.env.OLLAMA_CHARACTER_MODEL || interpreterModel;

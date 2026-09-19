@@ -8,7 +8,7 @@ const { enrichPlace } = require('./world');
 const { buildCampaignSummary } = require('./memory');
 const { reactToExecution } = require('./npc');
 
-const maxAttempts = Math.max(1, Number(process.env.TURN_MAX_ATTEMPTS || 2));
+const maxAttempts = Math.max(1, Number(process.env.TURN_MAX_ATTEMPTS || 1));
 const campaignLocks = new Map();
 const now = () => new Date().toISOString();
 
