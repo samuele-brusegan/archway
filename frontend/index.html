@@ -51,6 +51,40 @@
     @media (max-width:1250px) { .layout { grid-template-columns:220px minmax(0,1fr); } .right-column { grid-column:1/-1; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); } }
     @media (max-width:700px) { body::before { opacity:.75; } .scene { border-radius:18px; } .scene-header { min-height:145px; padding:1rem; } .scene-header h2 { font-size:1.8rem; padding-right:0; } .world-pulse { position:static; margin-bottom:.7rem; } .world-pulse .pulse-chip:nth-child(n+3) { display:none; } .story-log { padding:1rem .85rem; background:linear-gradient(90deg,transparent 0 23px,#ffffff09 23px 24px,transparent 24px); } .story-entry { grid-template-columns:30px 1fr; } .story-entry.user { grid-template-columns:1fr 30px; } .story-avatar { width:30px; height:30px; } .composer { padding:.75rem; } .composer-shell textarea { min-height:78px; } .context-strip { padding:.55rem .75rem; } }
     @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; transition:none!important; animation:none!important; } }
+    /* Viewport contract: il documento non supera mai 100vw × 100dvh. */
+    html,body { width:100%; max-width:100vw; height:100%; max-height:100vh; max-height:100dvh; overflow:hidden; }
+    body { min-height:0; }
+    main { width:100%; max-width:100vw; height:calc(100vh - 68px); height:calc(100dvh - 68px); min-height:0; overflow:hidden; }
+    #game { height:100%; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr); }
+    #game.hidden { display:none; }
+    .topbar { min-height:0; }
+    .layout { height:100%; min-height:0; overflow:hidden; }
+    .column { min-height:0; max-height:100%; }
+    .left-column,.right-column { overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+    .main-column { height:100%; overflow:hidden; }
+    .scene { width:100%; height:100%; min-height:0; max-height:100%; }
+    .story-log { min-height:0; max-height:none; overscroll-behavior:contain; }
+    body.focus-mode main { height:calc(100vh - 68px); height:calc(100dvh - 68px); }
+    body.focus-mode #game { grid-template-rows:minmax(0,1fr); }
+    body.focus-mode .layout,body.focus-mode .main-column,body.focus-mode .scene { height:100%; min-height:0; }
+    #onboarding { height:100%; max-height:100%; margin:0 auto; padding-top:7vh; padding-bottom:1rem; overflow-y:auto; overscroll-behavior:contain; }
+    @media (min-width:701px) and (max-width:1250px) {
+      .layout { overflow-y:auto; overscroll-behavior:contain; align-content:start; }
+      .main-column { height:calc(100vh - 180px); height:calc(100dvh - 180px); min-height:520px; }
+      .right-column { max-height:none; overflow:visible; }
+    }
+    @media (max-width:700px) {
+      main { height:calc(100vh - 60px); height:calc(100dvh - 60px); padding-bottom:calc(4.4rem + env(safe-area-inset-bottom)); overflow:hidden; }
+      #game { height:100%; }
+      #onboarding { padding-top:2vh; }
+      .topbar { flex:0 0 auto; margin-bottom:.7rem; }
+      .layout { height:100%; min-height:0; }
+      .layout[data-view="scene"] .main-column { display:block; height:100%; }
+      .layout[data-view="party"] .left-column,.layout[data-view="world"] .right-column,.layout[data-view="debug"] .right-column { height:100%; max-height:100%; overflow-y:auto; }
+      .scene { min-height:0; height:100%; max-height:100%; }
+      .story-log { min-height:0; }
+      body.focus-mode main { height:calc(100vh - 60px); height:calc(100dvh - 60px); padding-bottom:.75rem; }
+    }
   </style>
 </head>
 <body>
