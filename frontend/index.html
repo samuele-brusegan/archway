@@ -120,6 +120,36 @@
       .private-note summary { font-size:.7rem; }
       .private-note textarea { min-height:58px; }
     }
+    /* Layout finale del composer: una sola barra di possibilità e invio dentro il campo. */
+    .scene { grid-template-rows:auto minmax(0,1fr) auto; }
+    .story-log { min-height:0; max-height:none; overflow-y:auto; }
+    .composer { min-height:0; display:grid; gap:.55rem; }
+    .composer .context-strip { order:0; }
+    .composer-shell { min-width:0; }
+    .composer-input { position:relative; }
+    .composer-input textarea { padding-right:4.6rem; }
+    .composer-input #sendTurn {
+      position:absolute;
+      top:50%;
+      right:.7rem;
+      transform:translateY(-50%);
+      z-index:2;
+      width:42px;
+      height:42px;
+      margin:0;
+    }
+    .composer-status { min-height:1rem; display:flex; align-items:center; }
+    .composer-status #turnMessage { margin:0; }
+    @media (max-width:700px) {
+      .scene { grid-template-rows:auto minmax(0,1fr) auto; }
+      .composer { gap:.35rem; padding:.55rem .65rem .6rem; }
+      .composer-input textarea { min-height:58px; padding:.65rem 3.6rem .45rem .7rem; font-size:.92rem; }
+      .composer-input #sendTurn { right:.55rem; width:38px; height:38px; }
+      .composer-hint { padding:.05rem .6rem .25rem; font-size:.56rem; }
+      .composer-status { min-height:0; font-size:.65rem; }
+      .composer .private-note { margin:.2rem 0 0; padding:.35rem .55rem; }
+      .composer .private-note summary { font-size:.68rem; }
+    }
   </style>
 </head>
 <body>
@@ -132,7 +162,7 @@
     <section id="game" class="hidden"><div class="topbar"><div><div class="overline">cronaca attiva</div><h2 id="campaignTitle"></h2><div id="campaignMeta" class="campaign-meta"></div></div><div class="row actions"><button id="focusMode" class="secondary" title="Modalità lettura">◫ Focus</button><button id="refresh" class="secondary">↻ Sincronizza</button><button id="newCampaign" class="ghost">Esci</button></div></div>
       <div id="gameLayout" class="layout" data-view="scene">
         <aside class="column left-column sticky"><section class="panel"><div class="panel-header"><h3>La compagnia</h3><button id="addCharacter" class="icon" title="Aggiungi personaggio">＋</button></div><div id="characters" class="entity-list"></div></section><section class="panel"><div class="panel-header"><h3>Protagonista</h3><button id="editHero" class="icon" title="Modifica scheda">✎</button></div><div id="heroSummary" class="small"></div></section></aside>
-        <section class="column main-column"><section class="panel scene"><div class="scene-header"><div id="worldPulse" class="world-pulse"><span class="pulse-chip"><strong>0</strong> presenti</span><span class="pulse-chip"><strong>0</strong> vie</span></div><div id="sceneKicker" class="scene-kicker">scena corrente</div><h2 id="placeTitle">Luogo sconosciuto</h2><div id="placeDescription" class="small muted"></div><span id="time" class="small muted" style="margin-top:.55rem"></span></div><div id="contextActions" class="context-strip"><span class="context-label">Possibilità</span><button type="button" class="context-action" data-context-text="osserva con attenzione">Osserva</button></div><div id="storyLog" class="story-log"><div class="story-entry"><div class="story-avatar">A</div><div class="story-copy"><div class="story-meta">Archway · narratore</div>La tua storia è pronta. Cosa fai?</div></div></div><form id="turnForm" class="composer"><div class="quick-actions"><button type="button" class="secondary" data-quick="osserva con attenzione">◉ Osserva</button><button type="button" class="secondary" data-quick="ascolta i rumori intorno a me">◌ Ascolta</button><button type="button" class="secondary" data-quick="controlla il mio inventario">◇ Inventario</button></div><div class="composer-shell"><textarea id="turnText" required placeholder="Cosa fai, dici o tenti?"></textarea><div class="composer-hint"><span><kbd>/</kbd> scrivi subito</span><span><kbd>Ctrl</kbd> + <kbd>Invio</kbd> invia</span></div></div><details class="private-note"><summary>✦ Parla al narratore</summary><textarea id="narratorMessage" placeholder="Questa nota resta fuori dalla memoria dei personaggi."></textarea></details><div class="row" style="margin-top:.65rem"><button id="sendTurn" type="submit">Invia azione <span aria-hidden="true">↗</span></button><span id="turnMessage" class="status"></span></div></form></section></section>
+        <section class="column main-column"><section class="panel scene"><div class="scene-header"><div id="worldPulse" class="world-pulse"><span class="pulse-chip"><strong>0</strong> presenti</span><span class="pulse-chip"><strong>0</strong> vie</span></div><div id="sceneKicker" class="scene-kicker">scena corrente</div><h2 id="placeTitle">Luogo sconosciuto</h2><div id="placeDescription" class="small muted"></div><span id="time" class="small muted" style="margin-top:.55rem"></span></div><div id="storyLog" class="story-log"><div class="story-entry"><div class="story-avatar">A</div><div class="story-copy"><div class="story-meta">Archway · narratore</div>La tua storia è pronta. Cosa fai?</div></div></div><form id="turnForm" class="composer"><div id="contextActions" class="context-strip"><span class="context-label">Possibilità</span><button type="button" class="context-action" data-context-text="osserva con attenzione">Osserva</button></div><div class="composer-shell"><div class="composer-input"><textarea id="turnText" required placeholder="Cosa fai, dici o tenti?"></textarea><button id="sendTurn" type="submit" aria-label="Invia azione"></button></div><div class="composer-hint"><span><kbd>/</kbd> scrivi subito</span><span><kbd>Ctrl</kbd> + <kbd>Invio</kbd> invia</span></div></div><details class="private-note"><summary>✦ Parla al narratore</summary><textarea id="narratorMessage" placeholder="Questa nota resta fuori dalla memoria dei personaggi."></textarea></details><div class="composer-status"><span id="turnMessage" class="status"></span></div></form></section></section>
         <aside class="column right-column"><section class="panel"><div class="panel-header"><h3>Qui e ora</h3></div><div id="perception" class="info-grid small"></div></section><section class="panel"><div class="panel-header"><h3>Mondo</h3><button id="addPlace" class="icon" title="Aggiungi luogo">＋</button></div><div id="places" class="entity-list"></div><div id="map" class="scroll" style="margin-top:.65rem"></div></section><section class="panel"><div class="panel-header"><h3>Inventario</h3><button id="addItem" class="icon" title="Aggiungi oggetto">＋</button></div><div id="inventory" class="scroll small"></div></section><section class="panel"><div class="panel-header"><h3>Missioni</h3><button id="addMission" class="icon" title="Aggiungi missione">＋</button></div><div id="missions" class="scroll small"></div></section><section class="panel"><div class="panel-header"><h3>Memorie</h3><button id="addMemory" class="icon" title="Aggiungi memoria">＋</button></div><div id="memories" class="scroll small"></div></section><section class="panel"><div class="panel-header"><h3>Salvataggi</h3><button id="saveVersion" class="icon" title="Crea versione">＋</button></div><div id="versions" class="scroll small"></div><button id="exportCampaign" class="secondary" style="width:100%;margin-top:.65rem">Esporta JSON</button></section><section class="panel" id="debugPanel"><div class="panel-header"><h3>Registro tecnico</h3><button id="refreshTrace" class="icon" title="Aggiorna trace">↻</button></div><div id="traces" class="scroll small muted"></div></section></aside>
       </div>
     </section>
